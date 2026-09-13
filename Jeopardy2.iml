@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<module type="GENERAL_MODULE" version="4">
-  <component name="NewModuleRootManager" inherit-compiler-output="true">
-    <exclude-output />
-    <content url="file://$MODULE_DIR$" />
+<module type="PYTHON_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <!-- The module root is the import base, NOT app/. Code says
+         `from app.config import ...`, so marking app/ as a source root would
+         make the IDE resolve `from config import ...` instead and disagree
+         with how the app actually runs. -->
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.pytest_cache" />
+      <excludeFolder url="file://$MODULE_DIR$/.ruff_cache" />
+    </content>
+    <!-- inheritedJdk so the project SDK is chosen once in Settings rather
+         than pinned to an SDK name that only exists on one machine. -->
+    <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

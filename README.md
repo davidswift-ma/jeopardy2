@@ -151,6 +151,46 @@ generator, so their retry behaviour cannot drift apart.
 
 ---
 
+## Output quality: a measured prompt rule
+
+`SYSTEM_PROMPT` forbids non-ASCII punctuation. That rule is not stylistic —
+it's the fix for a real, high-rate defect, and removing it brings the defect
+back.
+
+Against `claude-opus-5` with structured output, the model tried to write em
+dashes inside its JSON string and mis-escaped them. A single em dash surfaced
+as five distinct corruptions across runs:
+
+| What landed in the `answer` field | |
+|---|---|
+| `—` | the literal characters, not a dash |
+| a line break | mid-sentence |
+| `\ndash` | newline followed by the word "dash" |
+| `"` or `""` | stray quotes mid-sentence |
+| `—` | correct (1 run in 8) |
+
+Measured rate: **7 of 8 responses corrupted** without the rule, **0 of 12**
+with it. The garbling was pure formatting — no repetition, no lost meaning —
+and in one case the model flagged its own broken output in `caveats` and
+supplied a clean rewrite, with self-reported confidence dropping to 0.6.
+
+This is a known trait of the Opus 5 family: unusual Unicode escaping inside
+structured-output JSON. Keeping the field values ASCII-only removes the
+problem at the source.
+
+Re-measure before touching the prompt:
+
+```bash
+python scripts/probe_answer_quality.py --trials 12      # costs one API call per trial
+```
+
+A cautionary note on the detector in that script: its first version counted
+only line breaks and reported 30%, under-reporting the true 87% by ~3x,
+because line breaks were just one of five artifact forms. If you extend it,
+check the bytes (`repr()`), not how the text looks.
+
+---
+
 ## Demonstrating the fallback
 
 Prompt *content* cannot reliably make a provider fail — a refusal comes back

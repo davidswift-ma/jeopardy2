@@ -134,3 +134,24 @@ async def test_injected_fault_raises_before_any_network_call(fast_settings):
     assert caught.value.error_type == "InjectedFault"
     assert caught.value.retryable is True
     assert engine._client is None, "no client should have been constructed"
+
+
+# --------------------------------------------------------------------------
+# Prompt invariants
+# --------------------------------------------------------------------------
+def test_system_prompt_forbids_non_ascii_punctuation():
+    """This rule is load-bearing and was expensive to find -- don't drop it.
+
+    Measured against claude-opus-5 with structured output: without an
+    explicit ASCII-punctuation rule, ~87% of responses (7 of 8) mis-escaped
+    an em dash inside the JSON string, surfacing as a literal "\\u2014", a
+    line break, the word "dash", or a stray quote mid-sentence. With the
+    rule, 0 of 12 showed any artifact. Re-measure with
+    scripts/probe_answer_quality.py before changing this.
+    """
+    from app.engines.base import SYSTEM_PROMPT
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "ascii" in lowered
+    assert "em dash" in lowered or "em dashes" in lowered
+    assert "line break" in lowered
