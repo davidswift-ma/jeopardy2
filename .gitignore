@@ -17,11 +17,9 @@ build/
 htmlcov/
 
 # --- Dataset ---
-# The 4,001-clue sample in data/ IS committed (see README). The full download
-# is ~80MB-496MB and stays out.
-data/combined_season*.tsv
-data/extra_matches.tsv
-data/kids_teen_matches.tsv
+# No clue data is committed: the source dataset asks that it not be used in a
+# public-facing product, and this repo is public. See data/README.md.
+data/*.tsv
 data/seasons/
 
 # --- macOS ---

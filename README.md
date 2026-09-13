@@ -229,21 +229,24 @@ The UI has a dropdown for the same thing. Values: `openai`,
 
 ## The Jeopardy dataset (phase 2)
 
-Not wired into the agent yet; the config seam (`DATASET_PATH`) and a sample
-are in place.
+Not wired into the agent yet; the config seam (`DATASET_PATH`) is in place.
 
-`data/jeopardy_sample.tsv` holds **4,001 clues** — a deterministic every-136th
-stride across all 42 seasons, so the repo runs out of the box without a
-496 MB download. Regenerate or repoint at the full file:
+**No clue data is committed to this repository.** The source dataset asks that
+it not be used in a public-facing site, app, or product, and this repo is
+public, so `data/` ships empty (see `data/README.md`). The agent's general
+question-answering does not need it — everything in the Quick start above runs
+without any download.
+
+For the dataset-backed work, fetch it yourself:
 
 ```bash
-make sample                                    # from the default location
-DATASET_PATH=/path/to/combined_season1-42.tsv  # use the full 544,111 clues
+# 1. Download from https://github.com/jwolle1/jeopardy_clue_dataset/releases
+# 2. Either point at the full file (544,111 clues):
+DATASET_PATH=/path/to/combined_season1-42.tsv
+# 3. ...or generate a small local sample from your download:
+make sample      # 4,001 clues, a deterministic every-136th stride across
+                 # all 42 seasons; written to data/ and gitignored
 ```
-
-Full dataset: <https://github.com/jwolle1/jeopardy_clue_dataset/releases>.
-It is not committed here — it's large, and its license asks that it not be
-used in a public-facing product.
 
 ### The column trap
 
