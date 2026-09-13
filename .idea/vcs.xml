@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="VcsDirectoryMappings">
-    <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
+    <!-- The project root IS the git root. It used to be "$PROJECT_DIR$/.."
+         because this project lived in a subdirectory of a larger repo; after
+         the split that pointed IntelliJ at a directory with no .git at all. -->
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
   </component>
 </project>

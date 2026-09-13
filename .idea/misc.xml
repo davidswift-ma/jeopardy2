@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ProjectRootManager" version="2">
-    <output url="file://$PROJECT_DIR$/out" />
+    <!-- No project-jdk-name on purpose: pinning an SDK name here would only
+         resolve on the machine that created it. Each developer points the
+         project SDK at their own .venv (File > Project Structure > SDKs, or
+         the "no interpreter" prompt IntelliJ shows on first open).
+         The `out/` output dir is a JVM leftover and harmless for Python. -->
   </component>
 </project>
