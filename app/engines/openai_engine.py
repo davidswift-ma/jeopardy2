@@ -105,7 +105,13 @@ class OpenAIEngine:
                 instructions=SYSTEM_PROMPT,
                 input=question,
                 text_format=Answer,
-                max_output_tokens=4096,
+                # Generous on purpose. On the GPT-5 family reasoning tokens
+                # count against this budget, so a tight ceiling can exhaust it
+                # before any answer is emitted -- which surfaces here as
+                # output_parsed being None, i.e. an unexplained failover rather
+                # than an obvious truncation. You are billed for tokens used,
+                # not the ceiling, so headroom is free.
+                max_output_tokens=16000,
             )
         except openai.RateLimitError as exc:
             # Must precede _TRANSIENT: a 429 is only worth retrying when it is

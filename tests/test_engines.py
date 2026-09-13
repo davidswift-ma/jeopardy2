@@ -155,3 +155,66 @@ def test_system_prompt_forbids_non_ascii_punctuation():
     assert "ascii" in lowered
     assert "em dash" in lowered or "em dashes" in lowered
     assert "line break" in lowered
+
+
+# --------------------------------------------------------------------------
+# Cross-provider schema compatibility
+# --------------------------------------------------------------------------
+def test_answer_schema_has_no_unsupported_keywords():
+    """The wire schema must stay portable across both providers.
+
+    Anthropic's structured-output endpoint rejects `minimum`/`maximum` on a
+    number outright:
+
+        400 output_config.format.schema: For 'number' type, properties
+            maximum, minimum are not supported
+
+    Anthropic's messages.parse() silently strips them, so the Anthropic path
+    survived by accident. The OpenAI SDK passes them through verbatim, so
+    re-adding ge/le to `confidence` risks every OpenAI call returning 400 ->
+    classified permanent -> a silent, permanent failover to Claude, with the
+    app appearing healthy while its primary engine never runs.
+
+    Enforce the range with a validator (no schema keywords), not Field bounds.
+    """
+    from app.schemas import Answer
+
+    schema = Answer.model_json_schema()
+    number_fields = {
+        name: spec for name, spec in schema["properties"].items() if spec.get("type") == "number"
+    }
+    assert number_fields, "expected at least one number field to guard"
+
+    banned = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
+    for name, spec in number_fields.items():
+        offending = banned & set(spec)
+        assert not offending, (
+            f"{name} emits {sorted(offending)} into the wire schema; use a "
+            f"field_validator instead (see this test's docstring)"
+        )
+
+    # Both providers' strict modes require these two properties.
+    assert schema.get("additionalProperties") is False
+    assert set(schema["required"]) == set(schema["properties"])
+
+
+def test_confidence_range_is_still_enforced():
+    """Dropping Field bounds must not drop the constraint."""
+    from app.schemas import Answer
+
+    assert Answer(answer="x", confidence=0.9, caveats=[]).confidence == 0.9
+    assert Answer(answer="x", confidence=1.05, caveats=[]).confidence == 1.0
+    assert Answer(answer="x", confidence=-0.2, caveats=[]).confidence == 0.0
+
+
+def test_openai_strict_conversion_produces_a_clean_schema():
+    """Guard the actual payload the OpenAI SDK builds, not just Pydantic's."""
+    import json
+
+    from openai.lib._pydantic import to_strict_json_schema
+
+    from app.schemas import Answer
+
+    serialized = json.dumps(to_strict_json_schema(Answer))
+    for keyword in ('"minimum"', '"maximum"', '"multipleOf"'):
+        assert keyword not in serialized, f"{keyword} would be sent to OpenAI"

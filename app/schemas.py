@@ -12,11 +12,14 @@ Two distinct families live here, and the split matters:
   defaults are fine.
 """
 
+import logging
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
@@ -32,17 +35,38 @@ class Answer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     answer: str = Field(description="The answer to the user's question, in plain prose.")
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description="Self-reported confidence from 0.0 to 1.0.",
-    )
+    # Deliberately NO ge/le here. Those emit `minimum`/`maximum` into the JSON
+    # schema, and Anthropic's structured-output endpoint rejects them outright:
+    #   400 output_config.format.schema: For 'number' type, properties
+    #       maximum, minimum are not supported
+    # It only worked because messages.parse() quietly strips them -- undocumented
+    # behaviour we shouldn't depend on. The OpenAI SDK does NOT strip them, so
+    # leaving them in risks every OpenAI call 400ing, which the harness would
+    # classify as permanent and turn into a silent, permanent failover to
+    # Claude: an app that looks healthy while its primary engine never runs.
+    # The range is enforced by the validator below, which adds no schema
+    # keywords. See test_answer_schema_has_no_unsupported_keywords.
+    confidence: float = Field(description="Self-reported confidence from 0.0 to 1.0.")
     caveats: list[str] = Field(
         description=(
             "Assumptions, ambiguities, or limitations affecting the answer. "
             "Empty list if there are none."
         )
     )
+
+    @field_validator("confidence")
+    @classmethod
+    def _clamp_confidence(cls, v: float) -> float:
+        """Clamp rather than reject an out-of-range confidence.
+
+        A model reporting 1.05 is a trivial deviation; failing the whole
+        request over it would discard a usable answer and spend a failover.
+        Logged so it never passes unnoticed.
+        """
+        if v < 0.0 or v > 1.0:
+            logger.warning("confidence %r out of range [0,1]; clamping", v)
+            return min(1.0, max(0.0, v))
+        return v
 
 
 # --------------------------------------------------------------------------
