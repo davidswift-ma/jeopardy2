@@ -28,7 +28,7 @@ fmt:  ## Auto-format and auto-fix
 
 check: lint test  ## Lint and test
 
-sample:  ## Regenerate the committed dataset sample from the full download
+sample:  ## Generate a local dataset sample from your own full download (gitignored)
 	$(PY) scripts/make_sample.py
 
 docker-build:  ## Build the Docker image

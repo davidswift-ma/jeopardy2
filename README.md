@@ -278,7 +278,7 @@ tool — not a reflexive RAG pipeline over 544k rows.
 ## Development
 
 ```bash
-make test      # 36 tests, no network, no real sleeping
+make test      # 50 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -303,7 +303,15 @@ app/
     claude_engine.py    fallback
     faults.py           force_fail injection (ContextVar, per-request)
   static/index.html     the browser UI
-scripts/make_sample.py  regenerate the committed dataset sample
+scripts/
+  make_sample.py           generate a local sample from your own download
+  probe_answer_quality.py  measure the non-ASCII corruption rate (uses API calls)
+  verify_docker.sh         the deployment check behind `make verify-docker`
+tests/
+  conftest.py              the scriptable FakeEngine and millisecond backoff
+  test_api.py              routes, SSE framing, the no-5xx guarantee
+  test_engines.py          engine adapters and error classification
+  test_harness.py          retry counts, backoff, failover
 ```
 
 ### Model IDs
