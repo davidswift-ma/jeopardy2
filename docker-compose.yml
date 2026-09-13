@@ -1,0 +1,35 @@
+# The shareable path: `docker compose up --build` is all your instructor needs
+# after putting his own keys in .env.
+services:
+  agent:
+    build: .
+    image: jeopardy2:local
+    ports:
+      - "8000:8000"
+    env_file:
+      # required:false so a fresh clone (where .env is gitignored, hence
+      # absent) still starts and reports the missing keys through the app's
+      # own /jeopardy2/config and startup warning -- rather than dying on a
+      # Compose error that explains nothing.
+      - path: .env
+        required: false
+    environment:
+      # Inside the container the sample lives at a fixed path. Override in
+      # .env only if you also mount the full dataset below.
+      DATASET_PATH: ${DATASET_PATH:-data/jeopardy_sample.tsv}
+    volumes:
+      # Optional: mount the full 496MB dataset read-only instead of using the
+      # committed sample. Set JEOPARDY_DATASET_DIR in .env to its location,
+      # then set DATASET_PATH=/data/combined_season1-42.tsv
+      - ${JEOPARDY_DATASET_DIR:-./data}:/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3

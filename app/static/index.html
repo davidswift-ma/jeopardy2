@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jeopardy2 Agent</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #151c33;
+    --panel-2: #1d263f;
+    --edge: #2b3652;
+    --ink: #e8ecf8;
+    --muted: #9aa5c4;
+    --accent: #d8a838;
+    --ok: #4ec58f;
+    --warn: #e8b04b;
+    --err: #e8695f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+    padding: 32px 20px 64px;
+  }
+  main { width: 100%; max-width: 780px; }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: .2px;
+  }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 12px; text-transform: uppercase;
+          letter-spacing: .8px; color: var(--muted); margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 78px; resize: vertical;
+    background: var(--bg); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: 8px;
+    padding: 11px 12px; font: inherit;
+  }
+  textarea:focus, select:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .row { display: flex; gap: 12px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap; }
+  .grow { flex: 1 1 200px; }
+  select, button {
+    font: inherit; border-radius: 8px; padding: 9px 12px;
+    border: 1px solid var(--edge); background: var(--panel-2); color: var(--ink);
+  }
+  button.primary {
+    background: var(--accent); color: #241c06; border-color: var(--accent);
+    font-weight: 600; cursor: pointer; padding: 9px 20px;
+  }
+  button.primary:disabled { opacity: .55; cursor: not-allowed; }
+  .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .examples button {
+    font-size: 12px; padding: 5px 10px; cursor: pointer; color: var(--muted);
+  }
+  .examples button:hover { color: var(--ink); border-color: var(--accent); }
+  .hidden { display: none !important; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px;
+       color: var(--muted); margin: 0 0 12px; }
+  .answer { font-size: 16px; line-height: 1.6; white-space: pre-wrap; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px;
+          padding-top: 14px; border-top: 1px solid var(--edge); font-size: 13px; }
+  .meta div { color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  ul.caveats { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+  ol.log { margin: 0; padding-left: 20px; font-size: 13px; color: var(--muted); }
+  ol.log li { margin-bottom: 4px; }
+  ol.log li.err { color: var(--err); }
+  ol.log li.ok { color: var(--ok); }
+  ol.log li.wait { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--edge); }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase;
+       font-size: 11px; letter-spacing: .6px; }
+  td.success { color: var(--ok); }
+  td.transient_error { color: var(--warn); }
+  td.permanent_error, td.skipped { color: var(--err); }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .banner { border-left: 3px solid var(--err); padding-left: 12px; color: var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Jeopardy<span>2</span> Agent</h1>
+  <p class="sub">OpenAI primary &middot; Claude fallback &middot; retries and backoff in the harness</p>
+
+  <div class="card">
+    <label for="q">Question</label>
+    <textarea id="q" placeholder="Explain AI in one or two sentences that my grandfather could understand."></textarea>
+    <div class="examples">
+      <button data-ex="Explain AI in one or two sentences that my grandfather could understand.">grandfather / AI</button>
+      <button data-ex="What is the capital of Australia, and why do people get it wrong?">capital of Australia</button>
+      <button data-ex="In two sentences, what makes a good Jeopardy! clue?">good clue</button>
+    </div>
+    <div class="row">
+      <div class="grow">
+        <label for="ff">Force failure (demo the fallback)</label>
+        <select id="ff">
+          <option value="">None &mdash; normal run</option>
+          <option value="openai">OpenAI, retryable &mdash; 3 tries, 10s + 20s, then Claude</option>
+          <option value="openai_permanent">OpenAI, permanent &mdash; immediate failover</option>
+          <option value="anthropic">Claude only</option>
+          <option value="both">Both &mdash; ends degraded</option>
+        </select>
+      </div>
+      <button id="go" class="primary">Ask</button>
+    </div>
+  </div>
+
+  <div id="progress" class="card hidden">
+    <h2>Harness progress</h2>
+    <ol id="log" class="log"></ol>
+  </div>
+
+  <div id="result" class="card hidden">
+    <h2 id="resultTitle">Answer</h2>
+    <div id="answer" class="answer"></div>
+    <ul id="caveats" class="caveats hidden"></ul>
+    <div class="meta">
+      <div>Served by <b id="servedBy">&mdash;</b></div>
+      <div>Confidence <b id="conf">&mdash;</b></div>
+      <div>Attempts <b id="attempts">&mdash;</b></div>
+      <div>Elapsed <b id="elapsed">&mdash;</b></div>
+      <div>Fallback <b id="fellBack">&mdash;</b></div>
+    </div>
+  </div>
+
+  <div id="traceCard" class="card hidden">
+    <h2>Engine trace</h2>
+    <table>
+      <thead><tr><th>#</th><th>Provider</th><th>Model</th><th>Try</th>
+                 <th>Outcome</th><th>Waited</th><th>Took</th><th>Error</th></tr></thead>
+      <tbody id="traceBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const el = (id) => document.getElementById(id);
+const qBox = el("q"), ffBox = el("ff"), goBtn = el("go");
+let stream = null;
+
+document.querySelectorAll(".examples button").forEach((b) => {
+  b.addEventListener("click", () => { qBox.value = b.dataset.ex; qBox.focus(); });
+});
+
+qBox.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
+});
+goBtn.addEventListener("click", ask);
+
+function logLine(text, cls) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  if (cls) li.className = cls;
+  el("log").appendChild(li);
+}
+
+const CLASS_FOR = {
+  attempt_failed: "err", failed: "err", provider_skipped: "err",
+  waiting: "wait", falling_back: "wait", completed: "ok",
+};
+
+function ask() {
+  const question = qBox.value.trim();
+  if (!question) { qBox.focus(); return; }
+
+  if (stream) stream.close();
+  goBtn.disabled = true;
+  goBtn.textContent = "Working…";
+  el("log").innerHTML = "";
+  el("progress").classList.remove("hidden");
+  el("result").classList.add("hidden");
+  el("traceCard").classList.add("hidden");
+
+  const params = new URLSearchParams({ question });
+  if (ffBox.value) params.set("force_fail", ffBox.value);
+
+  stream = new EventSource(`/jeopardy2/stream?${params}`);
+
+  stream.addEventListener("progress", (e) => {
+    const ev = JSON.parse(e.data);
+    logLine(ev.message, CLASS_FOR[ev.event] || null);
+  });
+
+  stream.addEventListener("result", (e) => {
+    render(JSON.parse(e.data));
+    finish();
+  });
+
+  stream.onerror = () => {
+    // Fires on network loss and also after the server closes the stream; only
+    // surface it if no result arrived.
+    if (el("result").classList.contains("hidden")) {
+      logLine("Connection to the agent was lost.", "err");
+    }
+    finish();
+  };
+}
+
+function finish() {
+  if (stream) { stream.close(); stream = null; }
+  goBtn.disabled = false;
+  goBtn.textContent = "Ask";
+}
+
+function render(res) {
+  const ok = res.status === "ok";
+  el("result").classList.remove("hidden");
+  el("resultTitle").textContent = ok ? "Answer" : "Degraded — no engine could answer";
+  const answerEl = el("answer");
+  answerEl.className = ok ? "answer" : "answer banner";
+  answerEl.textContent = ok ? res.answer.answer : (res.message || "No answer available.");
+
+  const cav = el("caveats");
+  cav.innerHTML = "";
+  if (ok && res.answer.caveats && res.answer.caveats.length) {
+    res.answer.caveats.forEach((c) => {
+      const li = document.createElement("li"); li.textContent = c; cav.appendChild(li);
+    });
+    cav.classList.remove("hidden");
+  } else {
+    cav.classList.add("hidden");
+  }
+
+  const t = res.trace;
+  el("servedBy").textContent = t.served_by_provider
+    ? `${t.served_by_provider} (${t.served_by_model})` : "—";
+  el("conf").textContent = ok ? `${Math.round(res.answer.confidence * 100)}%` : "—";
+  el("attempts").textContent = t.attempts.length;
+  el("elapsed").textContent = `${(t.total_ms / 1000).toFixed(1)}s`;
+  el("fellBack").textContent = t.used_fallback ? "yes" : "no";
+
+  const body = el("traceBody");
+  body.innerHTML = "";
+  t.attempts.forEach((a, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${a.provider}</td>
+      <td><code>${a.model}</code></td>
+      <td>${a.attempt}</td>
+      <td class="${a.outcome}">${a.outcome.replace(/_/g, " ")}</td>
+      <td>${a.slept_before_ms ? (a.slept_before_ms / 1000).toFixed(0) + "s" : "—"}</td>
+      <td>${(a.duration_ms / 1000).toFixed(2)}s</td>
+      <td>${a.error_type ? a.error_type : "—"}</td>`;
+    body.appendChild(tr);
+  });
+  el("traceCard").classList.remove("hidden");
+}
+</script>
+</body>
+</html>

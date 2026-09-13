@@ -1,0 +1,28 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+.idea
+*.iml
+.DS_Store
+
+# Never bake credentials into an image layer.
+.env
+.env.*
+!.env.example
+
+# The full dataset is mounted at runtime, never copied in.
+data/combined_season*.tsv
+data/extra_matches.tsv
+data/kids_teen_matches.tsv
+data/seasons
+
+README.md
+tests

@@ -1,0 +1,28 @@
+# --- Secrets: never commit API keys ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Dataset ---
+# The 4,001-clue sample in data/ IS committed (see README). The full download
+# is ~80MB-496MB and stays out.
+data/combined_season*.tsv
+data/extra_matches.tsv
+data/kids_teen_matches.tsv
+data/seasons/
+
+# --- macOS ---
+.DS_Store
