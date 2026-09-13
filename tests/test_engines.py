@@ -170,10 +170,13 @@ def test_answer_schema_has_no_unsupported_keywords():
             maximum, minimum are not supported
 
     Anthropic's messages.parse() silently strips them, so the Anthropic path
-    survived by accident. The OpenAI SDK passes them through verbatim, so
-    re-adding ge/le to `confidence` risks every OpenAI call returning 400 ->
-    classified permanent -> a silent, permanent failover to Claude, with the
-    app appearing healthy while its primary engine never runs.
+    survived by accident rather than by design.
+
+    Since confirmed against the live APIs: OpenAI ACCEPTS minimum/maximum, so
+    the OpenAI path was never at risk from this. The guard stays because the
+    Anthropic path's survival depends on undocumented SDK stripping behaviour
+    that could change in any release, and because one portable schema is
+    simpler to reason about than two provider-specific ones.
 
     Enforce the range with a validator (no schema keywords), not Field bounds.
     """

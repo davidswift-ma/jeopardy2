@@ -21,10 +21,17 @@ SYSTEM_PROMPT = (
     "If you do not know, say so plainly in `answer` and set a low confidence "
     "rather than inventing detail.\n"
     # Measured, not precautionary: without this rule ~87% of Opus 5 responses
-    # mis-escaped an em dash inside the structured-output JSON, landing as a
-    # literal "\\u2014", a newline, or a stray quote in the middle of a
-    # sentence. Restricting punctuation to ASCII removes the escaping problem
-    # at the source. See scripts/probe_answer_quality.py.
+    # (7/8) mis-escaped an em dash inside the structured-output JSON, landing
+    # as a literal "\\u2014", a newline, the word "dash", or a stray quote in
+    # the middle of a sentence. With it, 0/12. Restricting punctuation to ASCII
+    # removes the escaping problem at the source.
+    #
+    # The bug is Anthropic-specific. gpt-5.5 emits correct curly apostrophes
+    # (U+2019) and never corrupted anything in 8 trials without this rule, so
+    # for the OpenAI path the rule is cosmetic -- it just standardizes
+    # apostrophes so output reads the same whichever engine served it. Do not
+    # remove it on the grounds that "OpenAI is fine"; Claude is not.
+    # See scripts/probe_answer_quality.py.
     "Write using only plain ASCII punctuation. Do not use em dashes, en "
     "dashes, curly quotes, ellipsis characters, or any other non-ASCII "
     "symbol. Use commas, periods, semicolons, or parentheses instead. "

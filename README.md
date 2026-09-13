@@ -178,6 +178,18 @@ This is a known trait of the Opus 5 family: unusual Unicode escaping inside
 structured-output JSON. Keeping the field values ASCII-only removes the
 problem at the source.
 
+**It is provider-specific.** Tested against `gpt-5.5` over 8 trials with the
+rule removed: zero corruption. OpenAI emits correct curly apostrophes
+(`U+2019`) that render fine. So the rule is load-bearing for Claude and
+cosmetic for OpenAI, where it only standardizes apostrophes so output reads
+the same whichever engine answered. Don't remove it because "OpenAI is fine" —
+Claude isn't.
+
+A caution about the measurement itself: the detector flags *any* non-ASCII
+character, which means it reports OpenAI's perfectly good curly apostrophes as
+artifacts. Genuine corruption (Claude) and harmless style (OpenAI) look
+identical in the summary counts. Read the actual text, not just the tally.
+
 Re-measure before touching the prompt:
 
 ```bash
@@ -297,3 +309,28 @@ scripts/make_sample.py  regenerate the committed dataset sample
 rename and retire models. Defaults are `gpt-5.5` and `claude-opus-5`. **A 404
 from a provider almost always means a stale model ID in `.env`, not a code
 bug.**
+
+### Cost
+
+Measured, not estimated: one request is ~320 input and ~80 output tokens
+(163 of the input is the system prompt, 188 the JSON schema).
+
+| Model | Per call | Calls per $1 |
+|---|---|---|
+| `gpt-5.5` ($5 / $30 per 1M) | ~$0.0039 | ~256 |
+| `gpt-5.4-mini` ($0.75 / $4.50 per 1M) | ~$0.0006 | ~1,600 |
+
+`gpt-5.5` used **zero** reasoning tokens on simple questions, so the GPT-5
+reasoning-token surcharge did not materialize for this workload. Set
+`OPENAI_MODEL=gpt-5.4-mini` to develop at roughly a sixth the cost.
+
+### A note on quota errors
+
+`credit_balance_exhausted` (HTTP 429) is classified **permanent**, so it fails
+over immediately rather than spending 30s of backoff rediscovering that an
+account has no money. Caveat found in practice: for roughly an hour after a
+credit top-up, OpenAI returned that error *intermittently* (~1 call in 3) on
+an account that did have credits, and a retry would have succeeded. During
+such a window these requests fail over to Claude unnecessarily. The behaviour
+is still correct — you get an answer either way — but if quota errors ever look
+flaky rather than absolute, this is why.
