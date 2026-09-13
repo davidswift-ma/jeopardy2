@@ -122,7 +122,9 @@ if docker compose up -d --build >/tmp/j2-up-noenv.log 2>&1; then
 
   if [ -n "$READY" ]; then
     CONFIG=$(curl -fsS --max-time 5 "http://localhost:$PORT/jeopardy2/config")
-    if echo "$CONFIG" | grep -q '"openai": false'; then
+    # Whitespace-tolerant: FastAPI serializes compactly ("openai":false),
+    # but a pretty-printer or proxy could reintroduce spaces.
+    if echo "$CONFIG" | grep -qE '"openai"[[:space:]]*:[[:space:]]*false'; then
       ok "/jeopardy2/config correctly reports the missing keys"
     else
       bad "expected credentials_present.openai=false; got: $CONFIG"
