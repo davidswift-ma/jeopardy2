@@ -1,4 +1,4 @@
-.PHONY: help setup dev test lint fmt check sample docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs dev test lint fmt check sample probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -11,6 +11,9 @@ setup:  ## Create the venv and install dependencies (requires uv)
 	uv venv --python 3.12
 	uv pip install -e ".[dev]"
 	@test -f .env || (cp .env.example .env && echo "\n>> Created .env -- add your API keys to it.")
+
+setup-obs:  ## Add the optional Langfuse tracing dependency
+	uv pip install -e ".[dev,obs]"
 
 dev:  ## Run the app locally with auto-reload at http://localhost:8000
 	$(VENV)/bin/uvicorn app.main:app --reload --port 8000
@@ -30,6 +33,12 @@ check: lint test  ## Lint and test
 
 sample:  ## Generate a local dataset sample from your own full download (gitignored)
 	$(PY) scripts/make_sample.py
+
+probe:  ## Measure output corruption on the current prompt (costs 1 API call per trial)
+	$(PY) scripts/probe_answer_quality.py --trials $(or $(TRIALS),10)
+
+probe-compare:  ## Re-run the 7/8 vs 0/12 measurement: control vs production prompt
+	$(PY) scripts/probe_answer_quality.py --trials $(or $(TRIALS),8) --compare
 
 docker-build:  ## Build the Docker image
 	docker compose build

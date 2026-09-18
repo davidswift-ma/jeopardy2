@@ -11,6 +11,8 @@ from pathlib import Path
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.prompts import DEFAULT_PROMPT_NAME, prompt_names
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -53,6 +55,20 @@ class Settings(BaseSettings):
     # Leave on for local dev and demos; turn off for anything public.
     fault_injection_enabled: bool = True
 
+    # --- Prompt ------------------------------------------------------------
+    # Which named variant from app/prompts.py the engines use. Config rather
+    # than a literal so an eval run can swap the prompt without a code change
+    # -- the same reason model IDs are config.
+    prompt_variant: str = DEFAULT_PROMPT_NAME
+
+    # --- Observability -----------------------------------------------------
+    # Tracing is off unless explicitly enabled *and* credentialed. A missing
+    # or broken tracer must never affect a response: see app/obs/base.py.
+    langfuse_enabled: bool = False
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: str = "http://localhost:3000"
+
     # --- Dataset (phase 2) -------------------------------------------------
     # Points at the Jeopardy clue TSV. Not used by the general-question
     # endpoint; wired now so the dataset work has a single seam to plug into.
@@ -75,6 +91,16 @@ class Settings(BaseSettings):
     def _at_least_one_attempt(cls, v: int) -> int:
         if v < 1:
             raise ValueError("max_attempts must be at least 1")
+        return v
+
+    @field_validator("prompt_variant")
+    @classmethod
+    def _known_prompt(cls, v: str) -> str:
+        # Fail at startup, not at request time: a typo that silently fell back
+        # to the default would make an eval run report the production rate
+        # under the control's name.
+        if v not in prompt_names():
+            raise ValueError(f"unknown prompt_variant {v!r}; known: {prompt_names()}")
         return v
 
     @field_validator("provider_order")

@@ -13,8 +13,9 @@ import logging
 import anthropic
 
 from app.config import Settings
-from app.engines.base import SYSTEM_PROMPT, EngineError
+from app.engines.base import EngineError
 from app.engines.faults import current_fault
+from app.prompts import get_prompt
 from app.schemas import Answer, FaultTarget
 
 logger = logging.getLogger(__name__)
@@ -40,10 +41,14 @@ _PERMANENT = (
 class ClaudeEngine:
     name = PROVIDER
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, prompt_name: str | None = None) -> None:
         self._settings = settings
         self.model = settings.anthropic_model
         self._client: anthropic.AsyncAnthropic | None = None
+        prompt = get_prompt(prompt_name or settings.prompt_variant)
+        self.prompt_name = prompt.name
+        self.prompt_digest = prompt.digest
+        self.system_prompt = prompt.text
 
     def is_available(self) -> str | None:
         if self._settings.anthropic_api_key is None:
@@ -70,7 +75,7 @@ class ClaudeEngine:
             response = await client.messages.parse(
                 model=self.model,
                 max_tokens=4096,
-                system=SYSTEM_PROMPT,
+                system=self.system_prompt,
                 messages=[{"role": "user", "content": question}],
                 output_format=Answer,
             )

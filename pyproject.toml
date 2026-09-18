@@ -14,6 +14,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Observability is optional on purpose: without it installed the app runs
+# exactly as before and `build_tracer` returns a NullTracer that says so.
+obs = [
+    "langfuse>=2",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

@@ -30,7 +30,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
 from app.engines.faults import forced_fault
-from app.harness import run_agent
+from app.obs import NullTracer, Tracer, build_tracer
+from app.obs.harness import traced_run_agent
+from app.prompts import get_prompt, prompt_names
 from app.schemas import (
     AgentResponse,
     AskRequest,
@@ -42,6 +44,21 @@ from app.schemas import (
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+#: Built once at startup rather than per request: a tracer owns a background
+#: flush thread and an HTTP connection pool, and constructing one per request
+#: would leak both. Replaced in tests via `set_tracer`.
+_tracer: Tracer = NullTracer("tracer not initialised")
+
+
+def get_tracer() -> Tracer:
+    return _tracer
+
+
+def set_tracer(tracer: Tracer) -> None:
+    """Swap the process-wide tracer. For tests and for lifespan startup."""
+    global _tracer
+    _tracer = tracer
 
 
 @asynccontextmanager
@@ -71,7 +88,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "No provider API keys found. Copy .env.example to .env and add at "
             "least one key, or every request will come back degraded."
         )
-    yield
+
+    set_tracer(build_tracer(settings))
+    if (reason := get_tracer().is_available()) is not None:
+        # Informational, not a warning: tracing off is the default and a
+        # perfectly normal way to run this service.
+        logger.info("Tracing disabled (%s); prompt_variant=%s", reason, settings.prompt_variant)
+    try:
+        yield
+    finally:
+        # Langfuse buffers events and flushes on a timer. Without this, the
+        # last few traces of a short-lived container are lost on shutdown --
+        # exactly the ones you were watching during a demo.
+        get_tracer().flush()
 
 
 app = FastAPI(
@@ -115,6 +144,21 @@ async def show_config() -> dict[str, object]:
         },
         "request_timeout_seconds": s.request_timeout_seconds,
         "fault_injection_enabled": s.fault_injection_enabled,
+        "prompt": {
+            "variant": s.prompt_variant,
+            # The digest, not the text: a name can be reused after an edit, a
+            # content hash cannot. This is what to compare when two eval runs
+            # disagree.
+            "digest": get_prompt(s.prompt_variant).digest,
+            "available": prompt_names(),
+        },
+        "tracing": {
+            "enabled": s.langfuse_enabled,
+            "host": s.langfuse_host,
+            # None when tracing is working; otherwise the reason it is not,
+            # so "no traces are appearing" is a question the app can answer.
+            "unavailable_reason": get_tracer().is_available(),
+        },
         "dataset_path": str(s.dataset_path),
         "dataset_present": s.dataset_path.exists(),
     }
@@ -136,7 +180,9 @@ async def ask(payload: AskRequest) -> AgentResponse:
 
     final: AgentResponse | None = None
     with forced_fault(target):
-        async for item in run_agent(payload.question, settings):
+        async for item in traced_run_agent(
+            payload.question, settings, get_tracer(), tags=["route:post"]
+        ):
             if isinstance(item, AgentResponse):
                 final = item
 
@@ -170,7 +216,9 @@ async def ask_stream(
     async def event_source() -> AsyncIterator[str]:
         try:
             with forced_fault(target):
-                async for item in run_agent(question, settings):
+                async for item in traced_run_agent(
+                    question, settings, get_tracer(), tags=["route:stream"]
+                ):
                     if await request.is_disconnected():
                         logger.info("client disconnected; abandoning request")
                         return

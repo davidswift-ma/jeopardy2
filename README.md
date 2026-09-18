@@ -190,16 +190,92 @@ character, which means it reports OpenAI's perfectly good curly apostrophes as
 artifacts. Genuine corruption (Claude) and harmless style (OpenAI) look
 identical in the summary counts. Read the actual text, not just the tally.
 
-Re-measure before touching the prompt:
+Re-measure before touching the prompt. Both prompts that produced those
+numbers are named variants in `app/prompts.py`, so the comparison is a flag
+rather than a hand-edit:
 
 ```bash
-python scripts/probe_answer_quality.py --trials 12      # costs one API call per trial
+make probe-compare              # control vs production, prints both rates
+make probe TRIALS=12            # just the current prompt
+
+# the same thing, spelled out
+python scripts/probe_answer_quality.py --trials 8 --system-prompt no-ascii-rule
+python scripts/probe_answer_quality.py --trials 12 --system-prompt ascii-guard
 ```
+
+Costs one API call per trial (two per trial with `--compare`).
 
 A cautionary note on the detector in that script: its first version counted
 only line breaks and reported 30%, under-reporting the true 87% by ~3x,
 because line breaks were just one of five artifact forms. If you extend it,
 check the bytes (`repr()`), not how the text looks.
+
+---
+
+## Prompt versions and tracing
+
+The measurement above used to require editing a constant and remembering to
+put it back. Prompts are now data (`app/prompts.py`): each variant is named,
+carries its own notes, and hashes to a digest that identifies it in a trace.
+
+| Variant | Purpose |
+|---|---|
+| `ascii-guard` | Production. Includes the measured ASCII-punctuation rule. |
+| `no-ascii-rule` | The control. Identical minus that rule, for reproducing the 7/8 result. |
+
+The control differs from production in **exactly one dimension**, and a test
+enforces that (`tests/test_prompts.py`). If the control were also reworded, a
+change in corruption rate could not be attributed to the rule, which is the
+whole claim. `PROMPT_VARIANT` selects one; an unknown name fails at startup
+rather than silently falling back, because a silent default would report the
+production rate under the control's name.
+
+`GET /jeopardy2/config` reports the active variant and its digest. Compare
+digests, not names — a name can be reused after an edit, a hash cannot.
+
+### Langfuse
+
+Optional and off by default.
+
+```bash
+make setup-obs                  # adds the langfuse dependency
+# then in .env:
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=...
+LANGFUSE_SECRET_KEY=...
+LANGFUSE_HOST=http://localhost:3000
+```
+
+Each request becomes **one trace**, with one span per retry attempt nested
+inside it and a single generation for the call that actually answered. A
+request that retries three times and then fails over is one trace with four
+spans — not six top-level generations, which would double-count the failures
+in every downstream metric.
+
+Scores attached per trace: `served`, `used_fallback`, `attempts`,
+`self_reported_confidence`, and `answer_clean` — the last computed by the
+same detector `scripts/probe_answer_quality.py` uses (`app/quality.py`), so
+live traffic and offline eval runs produce comparable numbers.
+
+Three properties worth knowing:
+
+- **Telemetry cannot break a request.** Missing key, unreachable collector,
+  renamed SDK method — all degrade to a no-op plus a log line. There's a test
+  that drives the whole harness with a tracer that raises on every call and
+  asserts the answer still comes back. A monitoring outage becoming a
+  user-visible failure is exactly backwards.
+- **`app/harness/orchestrator.py` is untouched by any of this.** It already
+  yields a full description of what happened, so tracing is a *consumer* of
+  that generator (`app/obs/harness.py`), not an edit to it.
+- **The SDK lives in one file.** Langfuse changed its tracing surface between
+  v2 and v3; `app/obs/langfuse_tracer.py` detects which one is installed and
+  normalizes both. Verify that file against the version you actually install
+  — it is deliberately the only place that has to change.
+
+Self-hosting is the default host. Traces carry your prompts, so pointing
+`LANGFUSE_HOST` at a vendor cloud is a data decision, not just a config one.
+Langfuse's own compose stack is several services; it is deliberately *not*
+folded into this repo's `docker-compose.yml`, which stays a single service.
 
 ---
 
@@ -278,7 +354,7 @@ tool — not a reflexive RAG pipeline over 544k rows.
 ## Development
 
 ```bash
-make test      # 50 tests, no network, no real sleeping
+make test      # 77 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -293,8 +369,10 @@ unconfigured provider, SSE framing, and the no-5xx guarantee.
 ```
 app/
   main.py               FastAPI routes, SSE framing, the no-5xx handler
-  config.py             all tunables (models, retries, backoff, dataset path)
+  config.py             all tunables (models, retries, backoff, prompt, dataset)
   schemas.py            Pydantic contracts: model-facing vs. telemetry
+  prompts.py            named, digest-identified system prompt variants
+  quality.py            the corruption detector, shared by probe and live path
   harness/
     orchestrator.py     the provider chain: retry, backoff, failover
   engines/
@@ -302,16 +380,22 @@ app/
     openai_engine.py    primary
     claude_engine.py    fallback
     faults.py           force_fail injection (ContextVar, per-request)
+  obs/
+    base.py             Tracer protocol, NullTracer, the never_raises guard
+    langfuse_tracer.py  the only module importing the Langfuse SDK
+    harness.py          traces run_agent by consuming it, without modifying it
   static/index.html     the browser UI
 scripts/
   make_sample.py           generate a local sample from your own download
   probe_answer_quality.py  measure the non-ASCII corruption rate (uses API calls)
   verify_docker.sh         the deployment check behind `make verify-docker`
 tests/
-  conftest.py              the scriptable FakeEngine and millisecond backoff
+  conftest.py              FakeEngine, RecordingTracer, millisecond backoff
   test_api.py              routes, SSE framing, the no-5xx guarantee
   test_engines.py          engine adapters and error classification
   test_harness.py          retry counts, backoff, failover
+  test_obs.py              trace shape, scoring, telemetry-cannot-break-a-request
+  test_prompts.py          prompt registry invariants and the one-dimension rule
 ```
 
 ### Model IDs

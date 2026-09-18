@@ -11,8 +11,9 @@ import logging
 import openai
 
 from app.config import Settings
-from app.engines.base import SYSTEM_PROMPT, EngineError
+from app.engines.base import EngineError
 from app.engines.faults import current_fault
+from app.prompts import get_prompt
 from app.schemas import Answer, FaultTarget
 
 logger = logging.getLogger(__name__)
@@ -72,10 +73,17 @@ def _is_quota_exhaustion(exc: openai.RateLimitError) -> bool:
 class OpenAIEngine:
     name = PROVIDER
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, prompt_name: str | None = None) -> None:
         self._settings = settings
         self.model = settings.openai_model
         self._client: openai.AsyncOpenAI | None = None
+        prompt = get_prompt(prompt_name or settings.prompt_variant)
+        # Surfaced as attributes so telemetry can record which prompt served a
+        # request without reaching back into configuration that may since have
+        # changed.
+        self.prompt_name = prompt.name
+        self.prompt_digest = prompt.digest
+        self.system_prompt = prompt.text
 
     def is_available(self) -> str | None:
         if self._settings.openai_api_key is None:
@@ -102,7 +110,7 @@ class OpenAIEngine:
         try:
             response = await client.responses.parse(
                 model=self.model,
-                instructions=SYSTEM_PROMPT,
+                instructions=self.system_prompt,
                 input=question,
                 text_format=Answer,
                 # Generous on purpose. On the GPT-5 family reasoning tokens

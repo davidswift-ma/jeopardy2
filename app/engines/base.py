@@ -10,33 +10,13 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from app.config import Settings
+from app.prompts import DEFAULT_PROMPT_NAME, get_prompt
 from app.schemas import Answer
 
-SYSTEM_PROMPT = (
-    "You are a careful question-answering assistant.\n"
-    "Answer the user's question directly and concisely.\n"
-    "Report genuine uncertainty in `confidence` rather than overstating it, and "
-    "put any assumptions or ambiguities in `caveats`. If the question is "
-    "ambiguous, answer the most likely reading and say so in `caveats`.\n"
-    "If you do not know, say so plainly in `answer` and set a low confidence "
-    "rather than inventing detail.\n"
-    # Measured, not precautionary: without this rule ~87% of Opus 5 responses
-    # (7/8) mis-escaped an em dash inside the structured-output JSON, landing
-    # as a literal "\\u2014", a newline, the word "dash", or a stray quote in
-    # the middle of a sentence. With it, 0/12. Restricting punctuation to ASCII
-    # removes the escaping problem at the source.
-    #
-    # The bug is Anthropic-specific. gpt-5.5 emits correct curly apostrophes
-    # (U+2019) and never corrupted anything in 8 trials without this rule, so
-    # for the OpenAI path the rule is cosmetic -- it just standardizes
-    # apostrophes so output reads the same whichever engine served it. Do not
-    # remove it on the grounds that "OpenAI is fine"; Claude is not.
-    # See scripts/probe_answer_quality.py.
-    "Write using only plain ASCII punctuation. Do not use em dashes, en "
-    "dashes, curly quotes, ellipsis characters, or any other non-ASCII "
-    "symbol. Use commas, periods, semicolons, or parentheses instead. "
-    "Never put a line break inside a field value."
-)
+#: The production prompt text. The variants themselves now live in
+#: `app/prompts.py` so an eval run can swap one without editing code; this
+#: alias keeps the common import short and is what the engines default to.
+SYSTEM_PROMPT = get_prompt(DEFAULT_PROMPT_NAME).text
 
 
 class EngineError(Exception):
@@ -92,14 +72,19 @@ class Engine(Protocol):
         ...
 
 
-def build_engine(provider: str, settings: Settings) -> Engine:
-    """Construct an engine by name. Imports are local to keep startup cheap."""
+def build_engine(provider: str, settings: Settings, prompt_name: str | None = None) -> Engine:
+    """Construct an engine by name. Imports are local to keep startup cheap.
+
+    `prompt_name` overrides `settings.prompt_variant` for a single engine,
+    which is what lets the probe script run the control prompt without
+    touching configuration the rest of the process shares.
+    """
     if provider == "openai":
         from app.engines.openai_engine import OpenAIEngine
 
-        return OpenAIEngine(settings)
+        return OpenAIEngine(settings, prompt_name=prompt_name)
     if provider == "anthropic":
         from app.engines.claude_engine import ClaudeEngine
 
-        return ClaudeEngine(settings)
+        return ClaudeEngine(settings, prompt_name=prompt_name)
     raise ValueError(f"unknown provider: {provider}")

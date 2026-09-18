@@ -14,13 +14,13 @@ services:
       - path: .env
         required: false
     environment:
-      # Inside the container the sample lives at a fixed path. Override in
-      # .env only if you also mount the full dataset below.
+      # No clue data ships in the image. This is where a sample you generate
+      # yourself (`make sample`) or a mounted download is expected to live.
       DATASET_PATH: ${DATASET_PATH:-data/jeopardy_sample.tsv}
     volumes:
-      # Optional: mount the full 496MB dataset read-only instead of using the
-      # committed sample. Set JEOPARDY_DATASET_DIR in .env to its location,
-      # then set DATASET_PATH=/data/combined_season1-42.tsv
+      # Optional: mount your own copy of the dataset read-only. Set
+      # JEOPARDY_DATASET_DIR in .env to its location, then set
+      # DATASET_PATH=/data/combined_season1-42.tsv
       - ${JEOPARDY_DATASET_DIR:-./data}:/data:ro
     restart: unless-stopped
     healthcheck:
