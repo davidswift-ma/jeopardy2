@@ -14,6 +14,48 @@ from app.config import Settings
 from app.engines.base import EngineError
 from app.schemas import Answer
 
+#: Every setting that can arrive from the developer's shell or .env file.
+_LEAKY_ENV = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_MODEL",
+    "ANTHROPIC_MODEL",
+    "PROMPT_VARIANT",
+    "PROVIDER_ORDER",
+    "MAX_ATTEMPTS",
+    "BACKOFF_SECONDS",
+    "CLASSIFY_ERRORS",
+    "REQUEST_TIMEOUT_SECONDS",
+    "FAULT_INJECTION_ENABLED",
+    "LANGFUSE_ENABLED",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_HOST",
+    "RETRIEVAL_ENABLED",
+    "DATASET_PATH",
+    "INDEX_PATH",
+    "CHUNK_SCHEME",
+    "EMBEDDING_PROVIDER",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_DIMENSIONS",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings(monkeypatch) -> None:
+    """Stop `Settings()` reading the developer's .env or shell environment.
+
+    Without this the suite is machine-dependent: a test asserting that a
+    missing OPENAI_API_KEY is reported passes on CI and fails on the laptop
+    of anyone who has actually configured the app. Found exactly that way.
+
+    Autouse because the trap is invisible -- a test that constructs
+    `Settings()` looks hermetic and is not.
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for name in _LEAKY_ENV:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture
 def fast_settings() -> Settings:

@@ -28,6 +28,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import retrieval
 from app.config import Settings, get_settings
 from app.engines.faults import forced_fault
 from app.obs import NullTracer, Tracer, build_tracer
@@ -88,6 +89,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "No provider API keys found. Copy .env.example to .env and add at "
             "least one key, or every request will come back degraded."
         )
+
+    # Index state is resolved once, at startup, never inside a request: two
+    # workers lazily building on first request would duplicate the work and
+    # write to Chroma's SQLite concurrently. `make index` is the build path;
+    # startup only reports, so a slow build cannot delay readiness.
+    if settings.retrieval_enabled:
+        state = retrieval.inspect(settings)
+        level = logging.INFO if state.status == "ready" else logging.WARNING
+        logger.log(level, "Clue index: %s -- %s", state.status, state.reason)
+        for change in state.changes or []:
+            logger.warning("  index input changed: %s", change)
+    else:
+        logger.info("Clue retrieval disabled (RETRIEVAL_ENABLED is false)")
 
     set_tracer(build_tracer(settings))
     if (reason := get_tracer().is_available()) is not None:
@@ -161,6 +175,30 @@ async def show_config() -> dict[str, object]:
         },
         "dataset_path": str(s.dataset_path),
         "dataset_present": s.dataset_path.exists(),
+        "retrieval": _retrieval_config(s),
+    }
+
+
+def _retrieval_config(s: Settings) -> dict[str, object]:
+    """Index state, so "why is retrieval not working" is self-answerable.
+
+    Plumbing only at this stage: the index is not yet consulted when
+    answering. `status` is one of ready / needs_build / stale / no_dataset /
+    unavailable.
+    """
+    if not s.retrieval_enabled:
+        return {"enabled": False, "status": "disabled", "reason": "RETRIEVAL_ENABLED is false"}
+    state = retrieval.inspect(s)
+    return {
+        "enabled": True,
+        "status": state.status,
+        "reason": state.reason,
+        "changes": state.changes,
+        "index_path": str(s.index_path),
+        "chunk_scheme": s.chunk_scheme,
+        "embedding_provider": s.embedding_provider,
+        "embedding_dimensions": s.embedding_dimensions,
+        "wired_into_prompt": False,
     }
 
 

@@ -1,4 +1,4 @@
-.PHONY: help setup setup-obs dev test lint fmt check sample probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs setup-rag dev test lint fmt check sample index index-status probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -14,6 +14,9 @@ setup:  ## Create the venv and install dependencies (requires uv)
 
 setup-obs:  ## Add the optional Langfuse tracing dependency
 	uv pip install -e ".[dev,obs]"
+
+setup-rag:  ## Add the optional ChromaDB retrieval dependency
+	uv pip install -e ".[dev,rag]"
 
 dev:  ## Run the app locally with auto-reload at http://localhost:8000
 	$(VENV)/bin/uvicorn app.main:app --reload --port 8000
@@ -33,6 +36,12 @@ check: lint test  ## Lint and test
 
 sample:  ## Generate a local dataset sample from your own full download (gitignored)
 	$(PY) scripts/make_sample.py
+
+index:  ## Build the clue vector index (no-op if there is no clue data)
+	$(PY) scripts/build_index.py
+
+index-status:  ## Report index state without building anything
+	$(PY) scripts/build_index.py --status
 
 probe:  ## Measure output corruption on the current prompt (costs 1 API call per trial)
 	$(PY) scripts/probe_answer_quality.py --trials $(or $(TRIALS),10)

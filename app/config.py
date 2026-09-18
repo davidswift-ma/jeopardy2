@@ -70,9 +70,32 @@ class Settings(BaseSettings):
     langfuse_host: str = "http://localhost:3000"
 
     # --- Dataset (phase 2) -------------------------------------------------
-    # Points at the Jeopardy clue TSV. Not used by the general-question
-    # endpoint; wired now so the dataset work has a single seam to plug into.
+    # Points at the Jeopardy clue TSV. No clue data ships with this repo, so
+    # this path is routinely absent -- that is a supported state, not an error.
     dataset_path: Path = Path("data/jeopardy_sample.tsv")
+
+    # --- Retrieval ---------------------------------------------------------
+    # Off by default: the index is not wired into the prompt yet, and a fresh
+    # clone has no clue data to build one from.
+    retrieval_enabled: bool = False
+
+    # Where the Chroma store lives. MUST stay gitignored: Chroma keeps the
+    # document text next to each vector, so committing it would commit the
+    # clue data this repo deliberately does not redistribute.
+    index_path: Path = Path("data/chroma")
+    collection_name: str = "jeopardy_clues"
+
+    # How a row becomes embedded text.
+    #   qa-glued   clue + response in one chunk (the assignment's brief)
+    #   clue-only  clue text only; honest control for retrieval evaluation,
+    #              since qa-glued puts the answer inside the indexed text
+    chunk_scheme: str = "qa-glued"
+
+    # `hash` is offline, free, deterministic and meaningless -- it exists so
+    # the pipeline can be tested without a key. `openai` is the real one.
+    embedding_provider: str = "openai"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
 
     # --- Server ------------------------------------------------------------
     log_level: str = "INFO"
@@ -101,6 +124,23 @@ class Settings(BaseSettings):
         # under the control's name.
         if v not in prompt_names():
             raise ValueError(f"unknown prompt_variant {v!r}; known: {prompt_names()}")
+        return v
+
+    @field_validator("chunk_scheme")
+    @classmethod
+    def _known_chunk_scheme(cls, v: str) -> str:
+        from app.retrieval.chunks import CHUNK_SCHEMES
+
+        if v not in CHUNK_SCHEMES:
+            raise ValueError(f"unknown chunk_scheme {v!r}; known: {list(CHUNK_SCHEMES)}")
+        return v
+
+    @field_validator("embedding_provider")
+    @classmethod
+    def _known_embedding_provider(cls, v: str) -> str:
+        known = {"openai", "hash"}
+        if v not in known:
+            raise ValueError(f"unknown embedding_provider {v!r}; known: {sorted(known)}")
         return v
 
     @field_validator("provider_order")

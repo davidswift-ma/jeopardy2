@@ -340,6 +340,72 @@ is therefore ambiguous — it matches the clue text under a literal reading, but
 use unambiguous names (`clue_text` / `correct_response`) rather than passing
 `answer`/`question` through to a model and hoping.
 
+### The vector index
+
+Built, queryable, and **not yet wired into the prompt** — `/jeopardy2/config`
+reports `"wired_into_prompt": false`. The agent still answers from general
+knowledge.
+
+```bash
+make setup-rag          # adds chromadb
+make index              # build (no-op if there is no clue data)
+make index-status       # report state, change nothing
+
+# exercise the whole pipeline offline, with no key and no cost
+EMBEDDING_PROVIDER=hash RETRIEVAL_ENABLED=true make index
+```
+
+**Chunking is a no-op on this dataset, and that is the finding.** A clue
+averages 28 tokens; the longest in a 4,001-row sample is 93, and zero rows
+exceed 512. The row *is* the chunk — splitting would only risk severing a
+clue from its response. What the config does expose is the *scheme*:
+
+| `CHUNK_SCHEME` | Embedded text |
+|---|---|
+| `qa-glued` | category + clue + correct response in one chunk |
+| `clue-only` | category + clue; the response stays as metadata |
+
+`qa-glued` puts the answer inside the text you then search with the clue, so
+retrieval scores well partly because you indexed the answer. `clue-only` is
+the honest control for measuring retrieval quality. Both keep the response
+on the chunk as metadata, so correctness can always be checked.
+
+**Three states, and a fresh clone lands in the third.**
+
+| State | Behaviour |
+|---|---|
+| Index present, fingerprint matches | Load. Near-instant. |
+| Index absent, dataset present | `make index` builds it. |
+| Index absent, **dataset absent** | Reports the reason; app answers normally. |
+
+The third is the default, because `data/` ships empty — so it is what your
+first run looks like. `make index` exits 0 and says "nothing to index"
+rather than failing a build nobody asked for.
+
+**The index is never committed and never built inside a request.** Chroma
+stores document text next to each vector, so committing `data/chroma/` would
+commit the clue text verbatim in a binary blob — it is gitignored, and the
+ignore rule says why. Builds happen from `make index` or are reported at
+startup; two uvicorn workers lazily building on first request would duplicate
+the work and write to Chroma's SQLite concurrently.
+
+**Staleness is detected, because the bad case is silent.** A manifest next to
+the index records source size/mtime, row count, embedder ID, dimensions, and
+chunk scheme. Changing *dimensions* fails loudly at query time and you fix it
+in a minute. Swapping to a different model at the *same* dimensions returns
+plausible-looking garbage with no error anywhere — which is why `embedder_id`
+is compared, not just `dimensions`:
+
+```
+state:     stale -- index inputs changed
+  changed: embedder_id: 'hash:64' -> 'openai:text-embedding-3-small:64'
+```
+
+**Cost.** Embedding is not the expensive part. The full 544,111 rows is
+~15.4M tokens; the 4,001-row sample is ~112k. Generation per query costs far
+more. `EMBEDDING_PROVIDER=hash` is free, offline and deterministic — and
+produces meaningless geometry, so it is for tests and smoke runs only.
+
 ### Design note for later
 
 These clues are **structured** — round, category, dollar value, air date. Many
@@ -349,12 +415,15 @@ one") genuinely need embeddings. The plan is a tool-using agent with both a
 `query_clues` SQL tool over DuckDB/SQLite and an optional semantic search
 tool — not a reflexive RAG pipeline over 544k rows.
 
+Those columns are already on every chunk as filterable metadata, which is the
+half of that plan this phase delivers.
+
 ---
 
 ## Development
 
 ```bash
-make test      # 77 tests, no network, no real sleeping
+make test      # 104 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -384,19 +453,32 @@ app/
     base.py             Tracer protocol, NullTracer, the never_raises guard
     langfuse_tracer.py  the only module importing the Langfuse SDK
     harness.py          traces run_agent by consuming it, without modifying it
+  retrieval/
+    base.py             Embedder/ClueStore protocols, the staleness manifest
+    chunks.py           TSV -> chunks; where the inverted columns are renamed
+    embedders.py        openai (real) and hash (offline, free, meaningless)
+    chroma_store.py     the only module importing chromadb
+    index.py            the build/stale/ready state machine
   static/index.html     the browser UI
 scripts/
   make_sample.py           generate a local sample from your own download
+  build_index.py           build/inspect the vector index
   probe_answer_quality.py  measure the non-ASCII corruption rate (uses API calls)
   verify_docker.sh         the deployment check behind `make verify-docker`
 tests/
-  conftest.py              FakeEngine, RecordingTracer, millisecond backoff
+  conftest.py              FakeEngine, RecordingTracer, env isolation
   test_api.py              routes, SSE framing, the no-5xx guarantee
   test_engines.py          engine adapters and error classification
   test_harness.py          retry counts, backoff, failover
   test_obs.py              trace shape, scoring, telemetry-cannot-break-a-request
   test_prompts.py          prompt registry invariants and the one-dimension rule
+  test_retrieval.py        the column trap, chunk schemes, staleness, states
 ```
+
+Tests construct `Settings()` with `.env` and the shell environment disabled
+(an autouse fixture in `conftest.py`). Without that the suite is
+machine-dependent: a test asserting "missing `OPENAI_API_KEY` is reported"
+passes on CI and fails for anyone who has actually configured the app.
 
 ### Model IDs
 

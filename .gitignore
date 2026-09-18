@@ -22,5 +22,12 @@ htmlcov/
 data/*.tsv
 data/seasons/
 
+# The vector index is derived clue data, not a build artifact you can wave
+# through. Chroma stores the document text next to each vector, so committing
+# this directory would commit the clue text verbatim -- in a binary blob
+# nobody would catch in review.
+data/chroma/
+*.chroma/
+
 # --- macOS ---
 .DS_Store

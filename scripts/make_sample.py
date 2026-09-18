@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Build the committed sample of the Jeopardy clue dataset.
+"""Build a local sample of the Jeopardy clue dataset from your own download.
 
 The full dataset is ~80MB for the combined TSV (496MB for the whole download)
-and its license asks that it not be used in a public-facing product, so the
-repository carries only a small sample -- enough that the app runs out of the
-box for someone who has not downloaded anything.
+and its source asks that it not be used in a public-facing product, so this
+repository carries **no** clue data at all -- not even a sample. The output
+of this script is gitignored and stays on your machine.
 
 Sampling is a deterministic stride (every Nth row), not a random shuffle, so
 the result is reproducible and spreads evenly across all 42 seasons instead of
