@@ -1,0 +1,16 @@
+### A2A: judge running
+  [ACT     ] jeopardy_router: call transfer_to_agent({"agent_name": "judge_agent"})
+  [OBSERVE ] jeopardy_router: transfer_to_agent -> {"result": null}
+  [ACT     ] judge_agent: call judge_response({"correct_response": "the Jordan", "contestant_response": "Jordan River", "clue_text": "River mentioned most often in the Bible"})
+  [OBSERVE ] judge_agent: judge_response -> {"note": "One contains the other; likely correct but confirm it is the same referent.", "exact": false, "match_type": "substring"}
+  [ANSWER  ] judge_agent: ACCEPT "Jordan River" is the full name of the river and refers to the exact same entity as "the Jordan".
+  [ANSWER  ] judge_agent: ACCEPT "Jordan River" is the full name of the river and refers to the exact same entity as "the Jordan".
+Routed through: jeopardy_router -> judge_agent
+Loop: ACT -> OBSERVE -> ACT -> OBSERVE -> ANSWER -> ANSWER
+
+### A2A negative control: judge process killed
+  [ACT     ] jeopardy_router: call transfer_to_agent({"agent_name": "judge_agent"})
+  [OBSERVE ] jeopardy_router: transfer_to_agent -> {"result": null}
+Routed through: jeopardy_router -> judge_agent
+Agent: (no response)
+  (failure: All connection attempts failed -- the work was genuinely remote)

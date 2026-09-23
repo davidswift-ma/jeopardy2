@@ -527,6 +527,50 @@ five irrelevant Jeopardy clues, which is worse than no retrieval at all. This
 is the routed answer to "when should we retrieve?" — the router decides, not
 a heuristic.
 
+### Proof, not description
+
+Every claim above was run against live Gemini. Logs in `docs/runs/`.
+
+| Path | Evidence |
+|---|---|
+| Single agent loop | `THINK -> ACT -> OBSERVE -> ANSWER`, real clue quoted |
+| Routing | `transfer_to_agent(clue_search_agent)`, author switches |
+| General path protected | "explain a large language model" → `general_agent` |
+| **MCP** | agent called `describe_clues`, then wrote **its own SQL** |
+| **A2A** | router → HTTP → remote process → its own tool → verdict |
+
+The MCP result is worth reading closely. The agent discovered the schema at
+runtime and composed this itself:
+
+```sql
+SELECT COUNT(*) AS total_clues, MIN(air_date) AS earliest_air_date,
+       MAX(air_date) AS latest_air_date FROM clues
+```
+
+It returned 4,001 clues spanning 1984-09-10 to 2026-07-23 — matching the
+SQLite ground truth exactly. No SQL was written by hand anywhere.
+
+The A2A proof is a **negative control**, because a passing test proves less
+than a failing one here. With the judge process killed, the same query still
+routes to `judge_agent` and then dies at `All connection attempts failed` —
+no tool call, no answer. `judge_response` is defined only in
+`agents/judge_agent.py` and is never imported by the router's process, so
+the only place it could have run is the other side of the socket.
+
+### Quotas, and a dead model
+
+Two things the live runs taught, both worth knowing before you burn an
+afternoon:
+
+- **The free tier allows 20 generate requests per day, per model.** The
+  quota ID is `GenerateRequestsPerDayPerProjectPerModel-FreeTier`. Because
+  it is *per model*, switching `GEMINI_MODEL` gives you a fresh 20 — which
+  is how the MCP and A2A runs above got finished.
+- **`gemini-2.5-flash` 404s for new keys.** It still appears in the models
+  list, so listing a model is not proof you can call it. The API's own error
+  points at `gemini-3.6-flash`. Same lesson as `OPENAI_MODEL`: a 404 is
+  almost always a stale ID, not a bug.
+
 ### Why this is separate from `app/`
 
 ADK's `Runner` owns its own orchestration: retry, delegation, tool loops.
@@ -577,7 +621,7 @@ project's `pyproject.toml`, and `mcp` 2.x renamed `FastMCP` to `MCPServer`.
 ## Development
 
 ```bash
-make test      # 143 tests, no network, no real sleeping
+make test      # 145 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```

@@ -142,6 +142,29 @@ def test_order_matters():
     assert not logger.proved_the_loop()
 
 
+def test_an_immediately_repeated_phase_is_collapsed():
+    """Observed live: an A2A hop emits its final response twice.
+
+    Once from the remote agent, once as the router relays it. Left alone the
+    summary reads ANSWER -> ANSWER, which looks like two answers to one
+    question.
+    """
+    logger = LoopLogger(echo=False)
+    for _ in range(2):
+        logger.record(FakeEvent(author="judge_agent", text="ACCEPT", final=True))
+    assert logger.labels == ["ANSWER"]
+
+
+def test_a_repeat_that_is_not_adjacent_is_kept():
+    """Two genuine searches for the same term are two real events."""
+    logger = LoopLogger(echo=False)
+    call = FakeCall("search_clues", {"query": "rivers"})
+    logger.record(FakeEvent(calls=[call]))
+    logger.record(FakeEvent(responses=[FakeResponse("search_clues", {})]))
+    logger.record(FakeEvent(calls=[call]))
+    assert logger.labels == ["ACT", "OBSERVE", "ACT"]
+
+
 def test_tool_calls_are_recoverable_for_assertions():
     assert "search_clues" in _full_loop().tool_calls()[0]
 

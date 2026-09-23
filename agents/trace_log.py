@@ -92,6 +92,12 @@ class LoopLogger:
 
     def record(self, event: Any) -> None:
         for phase in phases_of(event):
+            # Drop an exact repeat of the previous phase. An A2A hop emits its
+            # final response twice -- once from the remote agent and once as
+            # the router relays it -- which read as "ANSWER -> ANSWER" and
+            # made the loop summary look like two answers to one question.
+            if self.phases and self.phases[-1] == phase:
+                continue
             self.phases.append(phase)
             if self.echo:
                 print("  " + phase.render())
