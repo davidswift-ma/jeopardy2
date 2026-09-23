@@ -102,7 +102,12 @@ class Settings(BaseSettings):
     # own orchestration, so it deliberately does not share the retry/backoff
     # machinery -- see README "Multi-agent system".
     google_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    # The course materials use gemini-2.5-flash, which now 404s for new keys:
+    #   "This model models/gemini-2.5-flash is no longer available to new
+    #    users. Please update your code to use models/gemini-3.6-flash"
+    # It still appears in the models list, so listing a model is not proof you
+    # can call it. Same lesson as OPENAI_MODEL: a 404 is a stale ID, not a bug.
+    gemini_model: str = "gemini-3.6-flash"
 
     # SQLite export of the clue TSV, queried by the MCP server. Gitignored for
     # the same reason as the vector index: it is the clue data.

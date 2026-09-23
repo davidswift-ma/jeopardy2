@@ -1,0 +1,8 @@
+=== Find me clues about rivers. ===
+  [ACT     ] jeopardy_router: call transfer_to_agent({"agent_name": "clue_search_agent"})
+  [OBSERVE ] jeopardy_router: transfer_to_agent -> {"result": null}
+  [ACT     ] clue_search_agent: call search_clues({"query": "rivers"})
+  [OBSERVE ] clue_search_agent: search_clues -> {"query": "rivers", "result_count": 5, "results": [{"clue_text": "River mentioned most often in the Bible", "correct_response": "the Jordan", "category": "LAKES & RIVERS", "round": "Jeopardy", "clue_value": 100, "air_date": "1984-09-10", "similarity_distance": 0.5209752321243286}, {"clue_text": "...
+
+=== Explain what a large language model is in two sentences. ===
+

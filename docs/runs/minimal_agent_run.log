@@ -1,0 +1,10 @@
+agent: jeopardy_clue_agent  model: gemini-3.6-flash  max_llm_calls: 8
+task:  What Jeopardy clues does the archive have about rivers? Quote one exactly.
+
+  [THINK   ] jeopardy_clue_agent: I am searching the archive for Jeopardy clues about rivers to find one to quote.
+  [ACT     ] jeopardy_clue_agent: call search_clues({"query": "rivers"})
+  [OBSERVE ] jeopardy_clue_agent: search_clues -> {"query": "rivers", "result_count": 5, "results": [{"clue_text": "River mentioned most often in the Bible", "correct_response": "the Jordan", "category": "LAKES & RIVERS", "round": "Jeopardy", "clue_value": 100, "air_date": "1984-09-10", "similarity_distance": 0.5210096836090088}, {"clue_text": "...
+  [ANSWER  ] jeopardy_clue_agent: The archive contains several clues about rivers, including topics like world rivers, holy rivers, and river geography. Here is one exact clue from the archive: - Category: RIVERS - Year: 1997 - Clue: "The section of this river near London Bridge is called the Pool" - Correct Response: the Thames
+
+THINK -> ACT -> OBSERVE -> ANSWER
+LOOP PROVED

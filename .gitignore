@@ -36,3 +36,14 @@ data/*.db
 
 # --- macOS ---
 .DS_Store
+
+# --- Stray credential files ---
+# A file named like a key got swept into a commit by `git add -A` and was
+# only stopped by GitHub's push protection. Keys belong in .env, which is
+# already ignored; these patterns catch the ad-hoc ones.
+*api_key*
+*apikey*
+*_token
+*.pem
+*.key
+!*.key.example
