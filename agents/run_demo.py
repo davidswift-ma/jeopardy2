@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
+from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -31,9 +32,16 @@ from google.genai import types
 load_dotenv()
 
 from agents.system import build_router  # noqa: E402
+from agents.trace_log import LoopLogger  # noqa: E402
 from app.config import Settings  # noqa: E402
 
 APP_NAME = "jeopardy_multi_agent"
+
+#: Higher than the single agent's limit because a router spends a call
+#: deciding before the specialist does any work, and a lookup-then-judge
+#: query legitimately crosses two specialists. Still bounded: ADK's default
+#: of 500 is not a safety net.
+MAX_LLM_CALLS = 20
 
 SCENARIOS = [
     ("SEMANTIC SEARCH", "Find me some clues about rivers or lakes."),
@@ -47,12 +55,12 @@ SCENARIOS = [
 ]
 
 
-async def ask(agent, message: str) -> tuple[str, list[str]]:
-    """Run one query, returning the answer and which agents were involved.
+async def ask(agent, message: str, *, echo: bool = True) -> tuple[str, list[str], LoopLogger]:
+    """Run one query; return the answer, the agent trail, and the T/A/O trace.
 
-    The author trail is the interesting part of a routing demo: without it
-    you cannot tell whether the router delegated correctly or the root just
-    answered by itself.
+    The author trail is what a routing demo needs that a single-agent demo
+    does not: without it you cannot tell whether the router delegated or the
+    root just answered by itself.
     """
     service = InMemorySessionService()
     runner = Runner(agent=agent, app_name=APP_NAME, session_service=service)
@@ -61,17 +69,28 @@ async def ask(agent, message: str) -> tuple[str, list[str]]:
 
     answer = "(no response)"
     trail: list[str] = []
-    async for event in runner.run_async(
-        user_id="user1", session_id=session.id, new_message=content
-    ):
-        author = getattr(event, "author", None)
-        if author and (not trail or trail[-1] != author):
-            trail.append(author)
-        if event.is_final_response() and event.content and event.content.parts:
-            text = event.content.parts[0].text
-            if text:
-                answer = text
-    return answer, trail
+    logger = LoopLogger(echo=echo)
+    try:
+        async for event in runner.run_async(
+            user_id="user1",
+            session_id=session.id,
+            new_message=content,
+            run_config=RunConfig(max_llm_calls=MAX_LLM_CALLS),
+        ):
+            logger.record(event)
+            author = getattr(event, "author", None)
+            if author and (not trail or trail[-1] != author):
+                trail.append(author)
+            if event.is_final_response() and event.content and event.content.parts:
+                text = event.content.parts[0].text
+                if text:
+                    answer = text
+    except Exception as exc:  # noqa: BLE001 - surfaced, including the limit error
+        if type(exc).__name__ == "LlmCallsLimitExceededError":
+            answer = f"(stopped at the {MAX_LLM_CALLS}-call limit: {exc})"
+        else:
+            raise
+    return answer, trail, logger
 
 
 async def main() -> int:
@@ -99,8 +118,9 @@ async def main() -> int:
     for label, query in queries:
         print(f"--- {label} ---")
         print(f"User: {query}\n")
-        answer, trail = await ask(router, query)
-        print(f"Routed through: {' -> '.join(trail) or '(unknown)'}")
+        answer, trail, logger = await ask(router, query)
+        print(f"\nRouted through: {' -> '.join(trail) or '(unknown)'}")
+        print(f"Loop: {' -> '.join(logger.labels) or '(no events)'}")
         print(f"Agent: {answer}\n")
     return 0
 

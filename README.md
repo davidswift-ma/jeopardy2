@@ -420,6 +420,72 @@ half of that plan this phase delivers.
 
 ---
 
+## The minimal ADK agent
+
+Start here. One agent, one tool, a step limit, and a loop you can read.
+
+```bash
+make setup-adk                            # google-adk, a2a-sdk, mcp
+# add GOOGLE_API_KEY and RETRIEVAL_ENABLED=true to .env
+make index                                # the tool needs something to search
+make agent-minimal
+```
+
+### Five bullets a beginner can repeat
+
+1. **An agent is a model plus a loop.** It thinks, calls a tool, reads the
+   result, and decides whether it is done — instead of answering in one shot.
+2. **Tools are plain Python functions.** ADK reads the type hints for the
+   parameter schema and the **docstring** for the description the model sees,
+   so the docstring is interface, not commentary.
+3. **The instruction has to say what "done" looks like**, or the model asks a
+   clarifying question instead of finishing. Ours states a goal, constraints,
+   and two acceptable endings.
+4. **The loop needs a ceiling.** ADK allows 500 LLM calls by default;
+   `RunConfig(max_llm_calls=8)` means a tool that keeps returning nothing
+   stops in seconds rather than spinning.
+5. **It is an agent only if the tool result changes the answer.** If the model
+   could have replied from memory, you built a workflow with extra steps.
+
+### Think / Act / Observe
+
+ADK emits a flat event stream, not phases. `agents/trace_log.py` maps it:
+
+| Event carries | Phase |
+|---|---|
+| Text, not final | **THINK** |
+| `get_function_calls()` | **ACT** |
+| `get_function_responses()` | **OBSERVE** |
+| `is_final_response()` | **ANSWER** |
+
+`LoopLogger.proved_the_loop()` turns "is this really an agent?" into an
+assertion: it is true only when a tool was proposed, returned a real result,
+and an answer followed *in that order*. A model answering from memory fails
+it. So does a tool call that never reaches an answer.
+
+**This is an agent because** the model decides on its own to call
+`search_clues`, and the archive's reply — not its training data — is what the
+final answer is built from. Ask it what clues *this* archive holds and it
+cannot fake the answer.
+
+**Stack, in one word:** ADK.
+
+### Patterns copied from the course sample
+
+| From `adk-multi-agent-systems/` | What was taken |
+|---|---|
+| `demo1_routing.py:60-65` | `Agent(name=, model=, description=, instruction=, tools=)` |
+| `demo1_routing.py:20-27` | tools as plain functions returning `dict` |
+| `demo1_routing.py:89-97` | `Runner` + `InMemorySessionService` + `run_async` |
+| `demo1_routing.py:81-85` | `sub_agents` routing (used by the larger system below) |
+| `shipping_agent.py:39-49` | `to_a2a(agent, port=...)` for the remote agent |
+| `demo2_mcp.py:33-47` | `McpToolset` + `StdioConnectionParams` |
+
+Not taken: the hardcoded dictionaries. Every tool here returns real data.
+Added beyond the sample: the step limit and the Think/Act/Observe labelling.
+
+---
+
 ## Multi-agent system (ADK)
 
 A second, **separate** system living in `agents/`: a Gemini-based router that
@@ -511,7 +577,7 @@ project's `pyproject.toml`, and `mcp` 2.x renamed `FastMCP` to `MCPServer`.
 ## Development
 
 ```bash
-make test      # 126 tests, no network, no real sleeping
+make test      # 143 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -549,6 +615,8 @@ app/
     index.py            the build/stale/ready state machine
   static/index.html     the browser UI
 agents/
+  minimal_agent.py      ONE agent, ONE tool, step limit, T/A/O logging
+  trace_log.py          maps ADK events to Think / Act / Observe
   system.py             router + specialists; MCP and A2A wiring
   tools.py              local tools (semantic clue search)
   clue_mcp_server.py    our own MCP server: read-only SQL over the clues
@@ -569,6 +637,7 @@ tests/
   test_prompts.py          prompt registry invariants and the one-dimension rule
   test_retrieval.py        the column trap, chunk schemes, staleness, states
   test_agents.py           router graph, MCP read-only guarantee, judge tool
+  test_trace_log.py        the T/A/O mapping and what "proved the loop" means
 ```
 
 Tests construct `Settings()` with `.env` and the shell environment disabled

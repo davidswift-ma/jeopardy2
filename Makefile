@@ -1,4 +1,4 @@
-.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status clues-db judge agents-demo agents-routing probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal clues-db judge agents-demo agents-routing probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -45,6 +45,9 @@ index:  ## Build the clue vector index (no-op if there is no clue data)
 
 index-status:  ## Report index state without building anything
 	$(PY) scripts/build_index.py --status
+
+agent-minimal:  ## Run the single ADK agent with one tool, logging Think/Act/Observe
+	$(PY) -m agents.minimal_agent
 
 clues-db:  ## Export the clue TSV to SQLite for the MCP server
 	$(PY) scripts/export_clues_db.py

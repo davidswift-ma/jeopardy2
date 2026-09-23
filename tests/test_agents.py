@@ -115,6 +115,45 @@ def test_subsets_can_be_built_without_mcp_or_a2a(adk_settings):
 
 
 # --------------------------------------------------------------------------
+# The minimal single agent (prompt 2 / 3)
+# --------------------------------------------------------------------------
+def test_minimal_agent_is_single_with_exactly_one_tool(adk_settings):
+    """Prompt 2 asks for one agent; prompt 3 asks for exactly one real tool."""
+    from agents.minimal_agent import build_minimal_agent
+
+    agent = build_minimal_agent(adk_settings)
+    assert not agent.sub_agents
+    assert len(agent.tools) == 1
+    assert agent.tools[0].__name__ == "search_clues"
+
+
+def test_minimal_agent_instruction_states_goal_constraints_and_done(adk_settings):
+    """ "Done" has to be stated or the model asks a follow-up instead of finishing."""
+    from agents.minimal_agent import INSTRUCTION
+
+    for section in ("GOAL", "CONSTRAINTS", "DONE LOOKS LIKE"):
+        assert section in INSTRUCTION
+
+
+def test_step_limit_is_set_and_far_below_the_adk_default(adk_settings):
+    """ADK defaults to 500 LLM calls, which is not a safety net."""
+    from google.adk.agents.run_config import RunConfig
+
+    from agents.minimal_agent import MAX_LLM_CALLS
+
+    assert 0 < MAX_LLM_CALLS <= 20
+    assert MAX_LLM_CALLS < RunConfig().max_llm_calls
+
+
+def test_router_run_also_has_a_step_limit():
+    from google.adk.agents.run_config import RunConfig
+
+    from agents.run_demo import MAX_LLM_CALLS as ROUTER_LIMIT
+
+    assert ROUTER_LIMIT < RunConfig().max_llm_calls
+
+
+# --------------------------------------------------------------------------
 # MCP server
 # --------------------------------------------------------------------------
 def test_query_returns_rows(clues_db):
