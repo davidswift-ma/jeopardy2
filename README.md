@@ -7,6 +7,10 @@ never returns a 5xx.
 
 > The model is the engine, the harness is the car.
 
+Sequence diagrams for every path in this repo — the retry ladder, the
+agent loop, routing, MCP, A2A, and where untrusted text gets fenced —
+are in [`docs/diagrams.md`](docs/diagrams.md).
+
 ---
 
 ## Quick start
@@ -527,6 +531,8 @@ five irrelevant Jeopardy clues, which is worse than no retrieval at all. This
 is the routed answer to "when should we retrieve?" — the router decides, not
 a heuristic.
 
+Sequence diagrams for routing, MCP and A2A: [`docs/diagrams.md`](docs/diagrams.md).
+
 ### Proof, not description
 
 Every claim above was run against live Gemini. Logs in `docs/runs/`.
@@ -573,7 +579,9 @@ afternoon:
 
 ### Security
 
-Full threat model in [`docs/threat_model.md`](docs/threat_model.md). The
+Full threat model in [`docs/threat_model.md`](docs/threat_model.md);
+the untrusted-content flow is diagram 6 in
+[`docs/diagrams.md`](docs/diagrams.md). The
 short version, because the honest framing matters more than the controls:
 **prompt injection has no complete solution**, and two architectural facts
 are doing the real work — there is **no egress tool** anywhere in `agents/`,
