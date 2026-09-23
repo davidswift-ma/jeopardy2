@@ -31,8 +31,23 @@ from google.adk.agents import Agent
 
 load_dotenv()
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+from app.config import Settings  # noqa: E402
+from app.security import check_bind_host  # noqa: E402
+
+# Default comes from Settings so it cannot drift from the rest of the app --
+# this file held gemini-2.5-flash after the 404 fix landed everywhere else.
+MODEL = os.getenv("GEMINI_MODEL") or Settings().gemini_model
 PORT = int(os.getenv("JUDGE_AGENT_PORT", "8001"))
+
+# `to_a2a` provides no inbound authentication. Uvicorn defaults to
+# 127.0.0.1, but `--host 0.0.0.0` is reflexive in a Dockerfile, and bound
+# there this becomes an unauthenticated LLM endpoint on someone else's bill.
+# Fail at import rather than serve it.
+_BIND_HOST = os.getenv("UVICORN_HOST") or os.getenv("HOST") or "127.0.0.1"
+if reason := check_bind_host(
+    _BIND_HOST, allow_public=os.getenv("A2A_ALLOW_PUBLIC_BIND", "").lower() == "true"
+):
+    raise RuntimeError(reason)
 
 
 def judge_response(clue_text: str, correct_response: str, contestant_response: str) -> dict:

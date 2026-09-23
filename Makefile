@@ -1,4 +1,4 @@
-.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal clues-db judge agents-demo agents-routing probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal injection-probe clues-db judge agents-demo agents-routing probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -60,6 +60,9 @@ agents-demo:  ## Run the multi-agent system (needs GOOGLE_API_KEY; start `make j
 
 agents-routing:  ## Routing only: no MCP subprocess, no second server
 	$(PY) -m agents.run_demo --no-mcp --no-a2a
+
+injection-probe:  ## Measure whether the agent obeys an injected clue (control vs defences)
+	$(PY) scripts/injection_probe.py --compare --trials $(or $(TRIALS),1)
 
 probe:  ## Measure output corruption on the current prompt (costs 1 API call per trial)
 	$(PY) scripts/probe_answer_quality.py --trials $(or $(TRIALS),10)

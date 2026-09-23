@@ -571,6 +571,36 @@ afternoon:
   points at `gemini-3.6-flash`. Same lesson as `OPENAI_MODEL`: a 404 is
   almost always a stale ID, not a bug.
 
+### Security
+
+Full threat model in [`docs/threat_model.md`](docs/threat_model.md). The
+short version, because the honest framing matters more than the controls:
+**prompt injection has no complete solution**, and two architectural facts
+are doing the real work — there is **no egress tool** anywhere in `agents/`,
+and the SQL path is `mode=ro&immutable=1`. Everything else is depth.
+
+`agents/` is the first place in this project where untrusted retrieved text
+reaches a model holding tools; the FastAPI path still reports
+`"wired_into_prompt": false`.
+
+| Surface | Control |
+|---|---|
+| Archive text in context | fenced with an unforgeable sentinel, scanned, flagged to the model |
+| Model-authored SQL | read-only connection; `ATTACH`/`load_extension`/stacking all tested and blocked |
+| Output rendered in a UI | `scan_for_exfiltration` catches the markdown-image channel; non-zero exit |
+| A2A endpoint | `to_a2a` has **no auth**; binding to `0.0.0.0` raises unless opted in |
+| Committed run logs | `redact_secrets` runs inside the trace formatter |
+| Runaway loops | `max_llm_calls` 8 / 20 against ADK's default of 500 |
+
+```bash
+make injection-probe        # control vs defences, canary-based
+```
+
+Measured so far: with `gemini-3.5-flash-lite`, n=1 per arm, the naive
+injection failed against **both** arms — so this does not yet show the
+defences change the outcome, only that the defended run reported the
+attempt. n=1 is not a measurement; it is a harness that works.
+
 ### Why this is separate from `app/`
 
 ADK's `Runner` owns its own orchestration: retry, delegation, tool loops.
@@ -621,7 +651,7 @@ project's `pyproject.toml`, and `mcp` 2.x renamed `FastMCP` to `MCPServer`.
 ## Development
 
 ```bash
-make test      # 145 tests, no network, no real sleeping
+make test      # 179 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```

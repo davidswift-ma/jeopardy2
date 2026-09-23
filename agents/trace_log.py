@@ -25,6 +25,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from app.security import redact_secrets
+
 #: Fixed width so the phase column lines up in a terminal log.
 _WIDTH = 8
 
@@ -48,6 +50,9 @@ def _short(value: Any, limit: int = 300) -> str:
     except (TypeError, ValueError):
         text = str(value)
     text = " ".join(text.split())
+    # Redact before truncating: these traces are written to docs/runs/ and
+    # committed, so a key reaching a log is a key reaching the repository.
+    text = redact_secrets(text)
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
