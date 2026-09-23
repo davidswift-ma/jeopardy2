@@ -420,10 +420,98 @@ half of that plan this phase delivers.
 
 ---
 
+## Multi-agent system (ADK)
+
+A second, **separate** system living in `agents/`: a Gemini-based router that
+delegates to four specialists, one reached over MCP and one over A2A.
+
+```bash
+make setup-adk                 # google-adk, a2a-sdk, mcp
+# add GOOGLE_API_KEY to .env   # https://aistudio.google.com/apikey
+make clues-db                  # export clues to SQLite for the MCP server
+
+make agents-routing            # routing only, nothing else needed
+make judge                     # terminal 1: the A2A agent on :8001
+make agents-demo               # terminal 2: the full system
+```
+
+| Specialist | Backed by | Handles |
+|---|---|---|
+| `clue_search_agent` | local tools → Chroma | "clues about Norse mythology" |
+| `clue_stats_agent` | **MCP** → SQLite | "which categories came up most in the 90s" |
+| `general_agent` | nothing | anything not about the archive |
+| `judge_agent` | **A2A** → `:8001` | "I said Jordan River. Correct?" |
+
+Three things worth knowing:
+
+**Routing is decided by `description`, not `instruction`.** The description
+tells the router *when to come here*; the instruction is that specialist's
+own system prompt. A precise instruction behind a vague description still
+routes badly.
+
+**The router cannot tell local from remote.** `judge_agent` is a
+`RemoteA2aAgent` and the rest are `LlmAgent`s, but all four are just entries
+in `sub_agents`. That is the point of the MCP/A2A layering: the router's code
+does not change as a specialist moves from function call to subprocess to
+network service.
+
+**`general_agent` exists to protect the general path.** Without it, "explain
+AI to my grandfather" gets forced into a clue specialist and answered with
+five irrelevant Jeopardy clues, which is worse than no retrieval at all. This
+is the routed answer to "when should we retrieve?" — the router decides, not
+a heuristic.
+
+### Why this is separate from `app/`
+
+ADK's `Runner` owns its own orchestration: retry, delegation, tool loops.
+That is the same job `app/harness/orchestrator.py` does, and two schedulers
+fighting over one request is worse than either alone. So `agents/` is a
+sibling, not a replacement — nothing in `app/` imports it, the FastAPI
+service is untouched, and the only shared code is `app/retrieval`. The
+`[adk]` extra keeps the dependency out of the base install.
+
+The tradeoff is real and deliberate: this system does **not** get the no-5xx
+guarantee, the backoff schedule, or the provider failover. It runs on Gemini,
+a third provider.
+
+### Our own MCP server
+
+`agents/clue_mcp_server.py` speaks MCP over stdio and exposes `query_clues`
+and `describe_clues` against the SQLite export. Written rather than borrowed
+because the course demo's Supabase server would mean uploading clue data to a
+hosted database, which is the thing this repo does not do.
+
+The model writes its own SQL, so the server is **read-only by construction**:
+the connection is opened `mode=ro&immutable=1`, only a single `SELECT`/`WITH`
+is accepted, and write keywords are rejected. A malformed query comes back as
+an error string the model can read and correct, not an exception that ends
+the turn. Tests cover `DROP`, `DELETE`, `UPDATE`, `INSERT`, `PRAGMA` and
+statement stacking.
+
+### A note on the course materials
+
+The bootcamp demos are written against `google-adk` 1.x. On 2.9.2 the MCP
+import path has moved:
+
+```python
+# demos (google-adk 1.x)
+from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
+
+# google-adk 2.9.2
+from google.adk.tools import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+```
+
+`demo3_full_system.py` also imports `langfuse` and
+`openinference.instrumentation.google_adk`, neither of which is in that
+project's `pyproject.toml`, and `mcp` 2.x renamed `FastMCP` to `MCPServer`.
+
+---
+
 ## Development
 
 ```bash
-make test      # 104 tests, no network, no real sleeping
+make test      # 126 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -460,9 +548,16 @@ app/
     chroma_store.py     the only module importing chromadb
     index.py            the build/stale/ready state machine
   static/index.html     the browser UI
+agents/
+  system.py             router + specialists; MCP and A2A wiring
+  tools.py              local tools (semantic clue search)
+  clue_mcp_server.py    our own MCP server: read-only SQL over the clues
+  judge_agent.py        the standalone A2A agent (run on :8001)
+  run_demo.py           runnable demo, prints which specialist handled what
 scripts/
   make_sample.py           generate a local sample from your own download
   build_index.py           build/inspect the vector index
+  export_clues_db.py       TSV -> SQLite, for the MCP server
   probe_answer_quality.py  measure the non-ASCII corruption rate (uses API calls)
   verify_docker.sh         the deployment check behind `make verify-docker`
 tests/
@@ -473,6 +568,7 @@ tests/
   test_obs.py              trace shape, scoring, telemetry-cannot-break-a-request
   test_prompts.py          prompt registry invariants and the one-dimension rule
   test_retrieval.py        the column trap, chunk schemes, staleness, states
+  test_agents.py           router graph, MCP read-only guarantee, judge tool
 ```
 
 Tests construct `Settings()` with `.env` and the shell environment disabled

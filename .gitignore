@@ -29,5 +29,10 @@ data/seasons/
 data/chroma/
 *.chroma/
 
+# SQLite export of the clues, queried by the MCP server. Same reasoning: it
+# is the clue data in another container.
+data/*.sqlite3
+data/*.db
+
 # --- macOS ---
 .DS_Store

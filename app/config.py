@@ -97,6 +97,20 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
 
+    # --- Multi-agent system (ADK, session 3) -------------------------------
+    # Entirely separate from the FastAPI harness above. ADK's Runner owns its
+    # own orchestration, so it deliberately does not share the retry/backoff
+    # machinery -- see README "Multi-agent system".
+    google_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+
+    # SQLite export of the clue TSV, queried by the MCP server. Gitignored for
+    # the same reason as the vector index: it is the clue data.
+    clues_db_path: Path = Path("data/clues.sqlite3")
+
+    # Where the A2A judge agent listens, and where the router looks for it.
+    judge_agent_url: str = "http://localhost:8001"
+
     # --- Server ------------------------------------------------------------
     log_level: str = "INFO"
 
