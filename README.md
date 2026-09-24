@@ -7,9 +7,10 @@ never returns a 5xx.
 
 > The model is the engine, the harness is the car.
 
-Sequence diagrams for every path in this repo — the retry ladder, the
-agent loop, routing, MCP, A2A, and where untrusted text gets fenced —
-are in [`docs/diagrams.md`](docs/diagrams.md).
+Seven ASCII sequence diagrams covering every path — the retry ladder, the
+agent loop, **where the semantic matching actually happens**, routing, MCP,
+A2A, and where untrusted text gets fenced — are in
+[`docs/diagrams.md`](docs/diagrams.md).
 
 ---
 
