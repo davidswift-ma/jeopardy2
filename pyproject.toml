@@ -32,6 +32,11 @@ adk = [
     "a2a-sdk>=0.2",
     "mcp>=2.0",
 ]
+# The eval dashboard (evals/dashboard.py). Recording and checking traces
+# need only [adk]; Streamlit is just the page that shows the results.
+eval = [
+    "streamlit>=1.40",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",

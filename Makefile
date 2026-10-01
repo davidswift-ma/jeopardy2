@@ -1,4 +1,4 @@
-.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal injection-probe clues-db judge agents-demo agents-routing probe probe-compare docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal injection-probe clues-db judge agents-demo agents-routing probe probe-compare setup-eval eval-record eval eval-report eval-dashboard docker-build docker-up docker-down docker-logs verify-docker clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -69,6 +69,21 @@ probe:  ## Measure output corruption on the current prompt (costs 1 API call per
 
 probe-compare:  ## Re-run the 7/8 vs 0/12 measurement: control vs production prompt
 	$(PY) scripts/probe_answer_quality.py --trials $(or $(TRIALS),8) --compare
+
+setup-eval:  ## Add ADK plus the Streamlit eval dashboard
+	uv pip install -e ".[dev,adk,eval]"
+
+eval-record:  ## Record traces for every eval case, live (costs money): LABEL=name [TRIALS=n]
+	$(PY) -m evals.record --label $(or $(LABEL),$(error set LABEL=name)) --trials $(or $(TRIALS),1) $(ARGS)
+
+eval:  ## Run the eval checks on a trace file (free): TRACES=evals/traces/x.jsonl
+	EVAL_TRACES=$(TRACES) $(PY) -m pytest evals/ -q -p no:cacheprovider
+
+eval-report:  ## Pass/fail table per check, side by side: TRACES="a.jsonl b.jsonl"
+	$(PY) -m evals.checks $(TRACES) --failures
+
+eval-dashboard:  ## Streamlit page that runs the eval suite and shows results
+	$(VENV)/bin/streamlit run evals/dashboard.py
 
 docker-build:  ## Build the Docker image
 	docker compose build

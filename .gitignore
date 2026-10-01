@@ -34,6 +34,10 @@ data/chroma/
 data/*.sqlite3
 data/*.db
 
+# Eval traces keep tool results whole (the grounding check needs them), so
+# they contain clue text too. Same reasoning as data/: record your own.
+evals/traces/
+
 # --- macOS ---
 .DS_Store
 
