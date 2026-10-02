@@ -7,9 +7,21 @@ Total live cost: a few cents of API credit.
 
 ---
 
-## Before class (10 minutes ahead)
+## Before class (15 minutes ahead)
 
-Open four terminal tabs, each in `~/git/jeopardy2`.
+**First, bring the public site back online.** It is kept switched off between
+demos so it can't spend anything. In `~/git/jeopardy2`, run:
+
+```bash
+make deploy
+```
+
+It takes 2 to 3 minutes and ends with *Visit your newly deployed app at
+https://jeopardy2-memory.fly.dev/*. The saved memories are still on the
+volume, so nothing is lost. Docker doesn't need to be running: Fly builds the
+image on its own servers.
+
+Then open four terminal tabs, each in `~/git/jeopardy2`.
 
 | Tab | Run | Leave it showing |
 |---|---|---|
@@ -168,13 +180,12 @@ Now share the public URL with the class: **https://jeopardy2-memory.fly.dev**
 | 3 (`make eval-dashboard`) | **Ctrl+C** |
 | 4 (`make agents-demo`) | nothing; it already exited |
 
-The public site needs nothing. Fly stops it on its own when nobody is using
-it, and it costs nothing while stopped. Take it offline entirely only if you
-want to, for example after the course is graded:
+After you've shared the URL and the class has tried it, take the public
+site offline again, so nothing can spend your credit until the next time:
 
 ```bash
-fly scale count 0 --yes      # take it offline
-fly scale count 1 --yes      # bring it back
+fly scale count 0 --yes      # take it offline (saved memories are kept)
+make deploy                  # bring it back, as in "Before class"
 ```
 
 ---
