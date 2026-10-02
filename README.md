@@ -12,10 +12,12 @@ request after a sleep takes a few extra seconds).
 
 > The model is the engine, the harness is the car.
 
-Seven ASCII sequence diagrams covering every path — the retry ladder, the
-agent loop, **where the semantic matching actually happens**, routing, MCP,
-A2A, and where untrusted text gets fenced — are in
-[`docs/diagrams.md`](docs/diagrams.md).
+Ten ASCII sequence diagrams covering every path are in
+[`docs/diagrams.md`](docs/diagrams.md): the retry ladder, the agent loop,
+**where the semantic matching actually happens**, routing, MCP, A2A, where
+untrusted text gets fenced, **memory across a process restart**, every
+checkpoint on the public request path, and the evals loop. The threat model is
+in [`docs/threat_model.md`](docs/threat_model.md).
 
 ---
 
@@ -848,8 +850,9 @@ passes on CI and fails for anyone who has actually configured the app.
 
 ### Model IDs
 
-`OPENAI_MODEL` and `ANTHROPIC_MODEL` are configuration because providers
-rename and retire models. Defaults are `gpt-5.5` and `claude-opus-5`. **A 404
+`OPENAI_MODEL`, `ANTHROPIC_MODEL` and `GEMINI_MODEL` are configuration
+because providers rename and retire models. Defaults are `gpt-5.5`,
+`claude-opus-5` and `gemini-3.6-flash`. **A 404
 from a provider almost always means a stale model ID in `.env`, not a code
 bug.**
 
@@ -862,6 +865,13 @@ Measured, not estimated: one request is ~320 input and ~80 output tokens
 |---|---|---|
 | `gpt-5.5` ($5 / $30 per 1M) | ~$0.0039 | ~256 |
 | `gpt-5.4-mini` ($0.75 / $4.50 per 1M) | ~$0.0006 | ~1,600 |
+| `gemini-3.6-flash` ($0.75 / $3.75 per 1M) | ~$0.002-0.003 | ~400 |
+
+Gemini is the opposite case: on the two demo questions it spent 380 and 624
+"thinking" tokens against about 50 tokens of visible answer, and thinking is
+billed as output. That is most of its cost, and it is why the public
+deployment's daily cap of 150 questions bounds the worst case at roughly
+$0.45 a day.
 
 `gpt-5.5` used **zero** reasoning tokens on simple questions, so the GPT-5
 reasoning-token surcharge did not materialize for this workload. Set

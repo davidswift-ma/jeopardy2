@@ -22,9 +22,9 @@ primary_region = "iad"
   BACKOFF_SECONDS = "[5]"
   # The force_fail demo hook lets a caller choose to burn retries.
   FAULT_INJECTION_ENABLED = "false"
-  # Spend controls. Per visitor, and for everyone combined per UTC day. At
-  # roughly $0.005 per question on gemini-3.6-flash, the daily cap bounds the
-  # worst case at well under a dollar a day.
+  # Spend controls. Per visitor, and for everyone combined per UTC day.
+  # Measured at $0.002-0.003 per question on gemini-3.6-flash (mostly thinking
+  # tokens), so the daily cap bounds the worst case at roughly $0.45 a day.
   RATE_LIMIT_PER_MINUTE = "6"
   DAILY_REQUEST_LIMIT = "150"
   # Fly's proxy puts the real visitor address here. Without it every visitor
