@@ -257,3 +257,9 @@ def test_openapi_documents_the_endpoint(client):
     spec = client.get("/openapi.json").json()
     assert "/jeopardy2" in spec["paths"]
     assert "/jeopardy2/stream" in spec["paths"]
+
+
+def test_robots_txt_keeps_crawlers_off_the_paid_routes(client):
+    r = client.get("/robots.txt")
+    assert r.status_code == 200
+    assert "Disallow: /jeopardy2" in r.text.splitlines()

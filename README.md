@@ -746,6 +746,9 @@ The public URL runs the same Docker image with `fly.toml` settings:
   day in total. The daily count is stored in SQLite, so a restart does not
   reset it.
 - **Fault injection off.**
+- **`/robots.txt` keeps crawlers off `/jeopardy2`.** Crawlers that respect
+  it never reach a route that calls the model. Bots that ignore it still run
+  into the two limits above.
 - **One machine with a 1 GB volume** for the memory file.
 
 First time only:

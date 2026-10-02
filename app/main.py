@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import retrieval
@@ -453,6 +453,17 @@ def _sse(event: str, data: str) -> str:
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots() -> PlainTextResponse:
+    """Keep well-behaved crawlers off the routes that spend model credit.
+
+    A courtesy, not a control: a hostile bot ignores this file. What actually
+    bounds spend is the rate limit and the daily cap (see `_over_limit`).
+    The page itself stays crawlable; loading it costs nothing.
+    """
+    return PlainTextResponse("User-agent: *\nDisallow: /jeopardy2\n")
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
