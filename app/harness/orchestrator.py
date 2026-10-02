@@ -36,8 +36,14 @@ async def run_agent(
     question: str,
     settings: Settings,
     engines: Sequence[Engine] | None = None,
+    *,
+    prompt: str | None = None,
 ) -> AsyncIterator[ProgressEvent | AgentResponse]:
     """Answer `question`, trying each configured provider in order.
+
+    `prompt`, when given, is what the engines receive instead of the bare
+    question -- the question plus remembered context (see app/memory.py).
+    The response still reports the user's original `question`.
 
     Yields progress events throughout and exactly one `AgentResponse` last.
     """
@@ -111,7 +117,7 @@ async def run_agent(
 
             attempt_started = time.perf_counter()
             try:
-                answer = await engine.answer(question)
+                answer = await engine.answer(prompt or question)
             except EngineError as exc:
                 duration_ms = _elapsed_ms(attempt_started)
                 outcome = (

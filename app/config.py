@@ -97,10 +97,12 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
 
-    # --- Multi-agent system (ADK, session 3) -------------------------------
-    # Entirely separate from the FastAPI harness above. ADK's Runner owns its
-    # own orchestration, so it deliberately does not share the retry/backoff
-    # machinery -- see README "Multi-agent system".
+    # --- Gemini ------------------------------------------------------------
+    # Used by the ADK multi-agent system (session 3), which is entirely
+    # separate from the FastAPI harness above -- see README "Multi-agent
+    # system". Since session 5 the harness can also use Gemini as an ordinary
+    # provider ("gemini" in PROVIDER_ORDER); that is how the public deployment
+    # runs, on its own capped key.
     google_api_key: SecretStr | None = None
     # The course materials use gemini-2.5-flash, which now 404s for new keys:
     #   "This model models/gemini-2.5-flash is no longer available to new
@@ -115,6 +117,30 @@ class Settings(BaseSettings):
 
     # Where the A2A judge agent listens, and where the router looks for it.
     judge_agent_url: str = "http://localhost:8001"
+
+    # --- Memory (session 5) -------------------------------------------------
+    # Cross-session memory for requests that carry a user_id. One SQLite file:
+    # durable across restarts as long as it sits on a persistent disk (a Fly
+    # volume in production, a Compose volume locally). Gitignored via
+    # data/*.sqlite3 -- it holds what users told the agent about themselves.
+    memory_db_path: Path = Path("data/memory.sqlite3")
+    # Per-user cap. Past it, the least recently used fact is forgotten first.
+    memory_max_items: int = 20
+    # Forget facts nobody has recalled in this many days. 0 keeps them forever.
+    memory_ttl_days: int = 90
+    # How many facts one answer may add, so a single reply cannot flood it.
+    memory_max_new_per_request: int = 3
+
+    # --- Public-traffic limits ----------------------------------------------
+    # 0 disables each limit, which is right for local development. A public
+    # deployment sets both: anyone with the URL spends the operator's credit.
+    rate_limit_per_minute: int = 0
+    # Counted in the memory database, so a restart does not reset the budget.
+    daily_request_limit: int = 0
+    # Header carrying the real client IP behind a proxy ("Fly-Client-IP" on
+    # Fly.io). Unset means use the socket peer, which behind a proxy is the
+    # proxy itself -- every visitor would share one rate-limit bucket.
+    client_ip_header: str | None = None
 
     # --- Server ------------------------------------------------------------
     log_level: str = "INFO"
@@ -165,7 +191,7 @@ class Settings(BaseSettings):
     @field_validator("provider_order")
     @classmethod
     def _known_providers(cls, v: list[str]) -> list[str]:
-        known = {"openai", "anthropic"}
+        known = {"openai", "anthropic", "gemini"}
         unknown = [p for p in v if p not in known]
         if unknown:
             raise ValueError(f"unknown provider(s) {unknown}; known: {sorted(known)}")

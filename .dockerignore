@@ -24,5 +24,12 @@ data/extra_matches.tsv
 data/kids_teen_matches.tsv
 data/seasons
 
+# Local SQLite files: the clue export and, more importantly, the development
+# memory database -- what people told the agent about themselves must not be
+# baked into an image layer. Same for the clue vector index.
+data/*.sqlite3*
+data/*.db
+data/chroma
+
 README.md
 tests

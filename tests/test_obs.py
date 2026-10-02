@@ -132,7 +132,7 @@ async def test_clean_answer_scores_one(fast_settings):
 async def test_corrupted_answer_scores_zero_with_the_artifact_named(fast_settings):
     """Live traffic is scored by the same detector the offline probe uses."""
     tracer = RecordingTracer()
-    bad = Answer(answer="an em dash — here", confidence=0.9, caveats=[])
+    bad = Answer(answer="an em dash — here", confidence=0.9, caveats=[], remember=[])
     engines = [FakeEngine("openai", script=[bad])]
     await drain(traced_run_agent("q", fast_settings, tracer, engines=engines))
 
@@ -207,7 +207,7 @@ def test_detector_cannot_distinguish_openai_style_from_claude_corruption():
     """
     benign = escape_artifacts("OpenAI’s output")
     assert benign == ["non-ascii:’"]
-    answer = Answer(answer="OpenAI’s output", confidence=0.9, caveats=[])
+    answer = Answer(answer="OpenAI’s output", confidence=0.9, caveats=[], remember=[])
     assert is_degenerate(diagnose(answer))
 
 
@@ -217,5 +217,6 @@ def test_self_flagged_caveat_counts_as_degenerate():
         answer="clean text",
         confidence=0.6,
         caveats=["There was a formatting error in my first attempt."],
+        remember=[],
     )
     assert is_degenerate(diagnose(answer))

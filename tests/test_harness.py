@@ -213,7 +213,7 @@ def test_backoff_repeats_last_value_when_attempts_exceed_schedule():
         {"backoff_seconds": [-1]},
         {"max_attempts": 0},
         {"provider_order": []},
-        {"provider_order": ["openai", "gemini"]},
+        {"provider_order": ["openai", "mistral"]},
     ],
 )
 def test_invalid_config_is_rejected_at_startup(kwargs):

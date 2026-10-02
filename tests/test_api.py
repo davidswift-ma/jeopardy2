@@ -230,7 +230,7 @@ def test_config_endpoint_redacts_secrets(client):
     body = client.get("/jeopardy2/config").json()
     serialized = json.dumps(body)
 
-    assert body["credentials_present"] == {"openai": True, "anthropic": True}
+    assert body["credentials_present"] == {"openai": True, "anthropic": True, "gemini": False}
     assert "test-openai-key" not in serialized
     assert "test-anthropic-key" not in serialized
     assert body["retry"]["max_attempts_per_provider"] == 3

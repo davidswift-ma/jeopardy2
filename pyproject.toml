@@ -1,7 +1,7 @@
 [project]
 name = "jeopardy2"
 version = "0.1.0"
-description = "Multi-provider AI agent harness (OpenAI primary, Claude fallback) served over FastAPI"
+description = "Multi-provider AI agent harness (OpenAI, Claude, Gemini) with cross-session memory, served over FastAPI"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -11,6 +11,8 @@ dependencies = [
     "openai>=1.58",
     "anthropic>=0.42",
     "python-dotenv>=1.0",
+    # Base, not [adk]: the harness's Gemini engine runs in the deployed image.
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -28,7 +30,6 @@ rag = [
 # from the OpenAI/Claude harness in app/; nothing in app/ imports it.
 adk = [
     "google-adk>=2.0",
-    "google-genai>=1.0",
     "a2a-sdk>=0.2",
     "mcp>=2.0",
 ]

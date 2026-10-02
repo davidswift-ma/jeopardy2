@@ -22,6 +22,9 @@ services:
       # JEOPARDY_DATASET_DIR in .env to its location, then set
       # DATASET_PATH=/data/combined_season1-42.tsv
       - ${JEOPARDY_DATASET_DIR:-./data}:/data:ro
+      # Cross-session memory. A named volume, so `docker compose down` and a
+      # rebuild both keep it; `docker compose down -v` is how you wipe it.
+      - memory:/var/lib/jeopardy2
     restart: unless-stopped
     healthcheck:
       test:
@@ -33,3 +36,6 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+
+volumes:
+  memory:

@@ -87,4 +87,8 @@ def build_engine(provider: str, settings: Settings, prompt_name: str | None = No
         from app.engines.claude_engine import ClaudeEngine
 
         return ClaudeEngine(settings, prompt_name=prompt_name)
+    if provider == "gemini":
+        from app.engines.gemini_engine import GeminiEngine
+
+        return GeminiEngine(settings, prompt_name=prompt_name)
     raise ValueError(f"unknown provider: {provider}")

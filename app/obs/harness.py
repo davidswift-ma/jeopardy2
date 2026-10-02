@@ -39,6 +39,7 @@ async def traced_run_agent(
     *,
     engines: Sequence[Engine] | None = None,
     tags: list[str] | None = None,
+    prompt: str | None = None,
 ) -> AsyncIterator[ProgressEvent | AgentResponse]:
     """`run_agent`, with one Langfuse trace per call.
 
@@ -67,7 +68,7 @@ async def traced_run_agent(
     final: AgentResponse | None = None
     seen_events: list[str] = []
     try:
-        async for item in run_agent(question, settings, engines):
+        async for item in run_agent(question, settings, engines, prompt=prompt):
             if isinstance(item, AgentResponse):
                 final = item
             else:

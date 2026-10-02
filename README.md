@@ -3,7 +3,12 @@
 A FastAPI agent with a resilient **harness**: OpenAI is the primary engine,
 Claude is the fallback, every call is retried on a configured schedule, the
 response is a validated Pydantic object rather than a string, and the service
-never returns a 5xx.
+never returns a 5xx. Since session 5 it also **remembers each user across
+sessions** (see [Memory](#memory-session-5)) and runs publicly on Fly.io, on
+Gemini.
+
+**Live demo:** <https://jeopardy2-memory.fly.dev> (sleeps when idle; the first
+request after a sleep takes a few extra seconds).
 
 > The model is the engine, the harness is the car.
 
@@ -49,8 +54,10 @@ make dev                   # http://localhost:8000
 
 ### Keys
 
-At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is required. With only
-one, the other provider is *skipped* cleanly and the app still answers — it
+At least one key for a provider in `PROVIDER_ORDER` is required:
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` (for `gemini`). The
+default order is OpenAI then Claude. With only one key, the other provider is
+*skipped* cleanly and the app still answers — it
 does not crash or hang. With neither, every request returns a `degraded`
 response that says exactly which keys are missing.
 
@@ -63,6 +70,8 @@ response that says exactly which keys are missing.
 | `GET /` | Browser UI |
 | `POST /jeopardy2` | Ask a question, wait for the answer |
 | `GET /jeopardy2/stream` | Same, as Server-Sent Events with live progress |
+| `GET /jeopardy2/memory?user_id=` | What the agent remembers about a user |
+| `DELETE /jeopardy2/memory?user_id=[&memory_id=]` | Forget one fact, or all of them |
 | `GET /jeopardy2/config` | Effective configuration, secrets redacted |
 | `GET /health` | Liveness |
 | `GET /docs` | Auto-generated OpenAPI docs |
@@ -80,7 +89,8 @@ curl -X POST http://localhost:8000/jeopardy2 \
   "answer": {                        // a validated object, not a string
     "answer": "...",
     "confidence": 0.9,
-    "caveats": []
+    "caveats": [],
+    "remember": []                   // facts to keep; used only with a user_id
   },
   "trace": {                         // how it got answered
     "attempts": [
@@ -657,10 +667,111 @@ project's `pyproject.toml`, and `mcp` 2.x renamed `FastMCP` to `MCPServer`.
 
 ---
 
+## Memory (session 5)
+
+**What it stores, when, where, how it's retrieved, and when it's forgotten.**
+The agent stores short facts and preferences that a user states about
+themselves, such as "Is studying opera for a pub quiz" or "Prefers short
+answers". It stores only facts, never the conversation or its own answers, and
+only for requests that carry a `user_id`. Writing happens after each successful
+answer: the structured `Answer` has a required `remember` list that the model
+fills from the user's current message, so memory costs no extra model call.
+Each proposed fact must pass validation (length, the injection and
+exfiltration scanners from the security layer, no URLs, nothing key-shaped)
+before it is stored. Facts live in one SQLite file (`MEMORY_DB_PATH`), keyed by
+an opaque `user_id` the browser generates and keeps in `localStorage`. In
+production that file sits on a Fly.io volume, so it survives restarts and
+redeploys; in Docker Compose it is a named volume. Retrieval loads all of the
+user's facts, most recently used first, into a fenced
+`<remembered_facts>` block placed ahead of the question. That block is labelled
+as background, not instructions, and the current message wins any conflict.
+With at most 20 short facts per user, loading them all is cheaper and more
+predictable than a similarity search. Facts are forgotten in three ways: when
+the user asks (a Forget button per fact, a Forget everything button, or
+`DELETE /jeopardy2/memory`); when a user exceeds 20 facts (the least recently
+used is dropped); and after 90 days without being recalled.
+
+### Proving recall across sessions
+
+`tests/test_memory.py::test_recall_survives_a_process_restart` runs session A
+and session B as **two separate Python processes** that share nothing but the
+SQLite file. Session B asks "Quiz me on something." and the test asserts that
+the fact from session A reached session B's model. The same thing, live against
+Gemini, with the server killed and restarted between the two questions:
+
+```
+== Session A (process 35853)
+answer: Good luck with your pub quiz! Ask me any questions about opera, and I
+        will keep my answers brief.
+memory: saved ['Is studying opera for a pub quiz on Friday', 'Prefers short answers']
+
+== Session B (new process 35860)
+answer: Which composer wrote the famous 1791 opera The Magic Flute?
+memory: recalled ['Prefers short answers', 'Is studying opera for a pub quiz on Friday']
+```
+
+In the browser, the "What I remember about you" panel shows the stored facts.
+Click **tell it about you**, then open the page in a new tab (or wait for the
+deployed app to sleep and wake up) and click **quiz me**.
+
+### Why memory is defended
+
+A remembered fact is put back into every later prompt for that user, so a
+malicious fact that is stored once keeps acting on every later request. This
+is memory poisoning. Three things limit it:
+
+1. **Scope.** Every read, write and delete is filtered by `user_id`, so the
+   worst a user can do is poison their own memory. Deleting by row ID still
+   requires the matching `user_id`.
+2. **Validation on the way in and on the way out.** `check_fact` rejects
+   anything instruction-shaped, exfiltration-shaped, URL-bearing, key-shaped
+   or overlong. Rejections are reported in the response's `memory.rejected`,
+   not dropped silently.
+3. **Fencing.** Facts arrive in a delimited block that is labelled as data
+   about the user. Stored text cannot contain the closing tag.
+
+The `user_id` is not authentication. It is an unguessable random string, and
+anyone who has it can read that user's facts. That is acceptable for a demo
+with no accounts. It would not be acceptable for real personal data.
+
+---
+
+## Deploying to Fly.io
+
+The public URL runs the same Docker image with `fly.toml` settings:
+
+- **Gemini only,** on a key created just for this deployment, so the
+  development OpenAI and Anthropic keys are never exposed.
+- **Spend limits:** at most 6 questions per minute per visitor and 150 per
+  day in total. The daily count is stored in SQLite, so a restart does not
+  reset it.
+- **Fault injection off.**
+- **One machine with a 1 GB volume** for the memory file.
+
+First time only:
+
+```bash
+brew install flyctl
+fly auth login                 # opens a browser; needs a card on file
+make fly-setup                 # creates the app and the memory volume
+fly secrets set GOOGLE_API_KEY=...   # in your own terminal, never in a chat
+make deploy
+```
+
+After that, `make deploy` is the whole release. `make deploy-logs` tails the
+logs. If the app name `jeopardy2-memory` is taken, change `app` in
+`fly.toml`.
+
+The container starts as root only long enough to hand the volume to the `app`
+user (`scripts/docker-entrypoint.sh`), because Fly mounts volumes root-owned.
+It then drops privileges before the server starts.
+
+---
+
 ## Development
 
 ```bash
-make test      # 179 tests, no network, no real sleeping
+make test      # 279 tests, no network, no real sleeping
 make lint      # ruff check + format --check
 make check     # both
 ```
@@ -679,12 +790,14 @@ app/
   schemas.py            Pydantic contracts: model-facing vs. telemetry
   prompts.py            named, digest-identified system prompt variants
   quality.py            the corruption detector, shared by probe and live path
+  memory.py             cross-session memory: validation, SQLite store, forgetting
   harness/
     orchestrator.py     the provider chain: retry, backoff, failover
   engines/
     base.py             Engine protocol + the EngineError the harness classifies
     openai_engine.py    primary
     claude_engine.py    fallback
+    gemini_engine.py    the public deployment's engine
     faults.py           force_fail injection (ContextVar, per-request)
   obs/
     base.py             Tracer protocol, NullTracer, the never_raises guard
@@ -711,6 +824,7 @@ scripts/
   export_clues_db.py       TSV -> SQLite, for the MCP server
   probe_answer_quality.py  measure the non-ASCII corruption rate (uses API calls)
   verify_docker.sh         the deployment check behind `make verify-docker`
+  docker-entrypoint.sh     hands the memory volume to the app user, drops root
 tests/
   conftest.py              FakeEngine, RecordingTracer, env isolation
   test_api.py              routes, SSE framing, the no-5xx guarantee
@@ -721,6 +835,7 @@ tests/
   test_retrieval.py        the column trap, chunk schemes, staleness, states
   test_agents.py           router graph, MCP read-only guarantee, judge tool
   test_trace_log.py        the T/A/O mapping and what "proved the loop" means
+  test_memory.py           memory validation, scoping, forgetting, limits, two-process recall
 ```
 
 Tests construct `Settings()` with `.env` and the shell environment disabled

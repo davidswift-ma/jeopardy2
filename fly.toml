@@ -1,0 +1,63 @@
+# Fly.io deployment: the public HTTPS URL for session 5.
+#
+# First-time setup is in the README ("Deploying to Fly.io"). After that,
+# `make deploy` is the whole release process.
+#
+# `app` must be unique across all of Fly. If this name is taken, pick another
+# and change it here.
+app = "jeopardy2-memory"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Non-secret configuration. The one secret, GOOGLE_API_KEY, is set with
+# `fly secrets set` and never appears in this file or in the repository.
+[env]
+  # Gemini only, on a key made just for this deployment. The OpenAI and
+  # Anthropic keys used in development are never given to the public URL.
+  PROVIDER_ORDER = '["gemini"]'
+  # Fail fast for strangers: two tries, one short wait.
+  MAX_ATTEMPTS = "2"
+  BACKOFF_SECONDS = "[5]"
+  # The force_fail demo hook lets a caller choose to burn retries.
+  FAULT_INJECTION_ENABLED = "false"
+  # Spend controls. Per visitor, and for everyone combined per UTC day. At
+  # roughly $0.005 per question on gemini-3.6-flash, the daily cap bounds the
+  # worst case at well under a dollar a day.
+  RATE_LIMIT_PER_MINUTE = "6"
+  DAILY_REQUEST_LIMIT = "150"
+  # Fly's proxy puts the real visitor address here. Without it every visitor
+  # would share the proxy's address and one rate-limit bucket.
+  CLIENT_IP_HEADER = "Fly-Client-IP"
+  # On the volume below, so memory survives restarts and redeploys.
+  MEMORY_DB_PATH = "/var/lib/jeopardy2/memory.sqlite3"
+  LOG_LEVEL = "INFO"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Sleeps when idle (no cost while stopped) and wakes on the next request.
+  # The first request after a sleep takes a few extra seconds.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "3s"
+    grace_period = "10s"
+
+# One volume, one machine. A volume attaches to exactly one machine, so a
+# second machine would get its own empty memory and users would see their
+# facts come and go depending on which one answered. `make deploy` passes
+# --ha=false to keep it at one.
+[mounts]
+  source = "jeopardy2_memory"
+  destination = "/var/lib/jeopardy2"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

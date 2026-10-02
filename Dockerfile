@@ -24,7 +24,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# Run unprivileged.
+# Runs unprivileged: the entrypoint starts as root only to hand the memory
+# volume to this user, then drops privileges before the server starts.
 RUN useradd --create-home --uid 1000 app
 
 COPY --from=builder /opt/venv /opt/venv
@@ -35,10 +36,16 @@ COPY --chown=app:app data/ ./data/
 COPY --chown=app:app scripts/ ./scripts/
 COPY --chown=app:app pyproject.toml ./
 
-USER app
+# Cross-session memory lives outside /app so a volume can be mounted here
+# (Fly volume in production, a named volume in Compose) and survive both
+# restarts and image rebuilds.
+ENV MEMORY_DB_PATH=/var/lib/jeopardy2/memory.sqlite3
+RUN mkdir -p /var/lib/jeopardy2 && chown app:app /var/lib/jeopardy2
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/health')"
 
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -205,9 +205,9 @@ def test_confidence_range_is_still_enforced():
     """Dropping Field bounds must not drop the constraint."""
     from app.schemas import Answer
 
-    assert Answer(answer="x", confidence=0.9, caveats=[]).confidence == 0.9
-    assert Answer(answer="x", confidence=1.05, caveats=[]).confidence == 1.0
-    assert Answer(answer="x", confidence=-0.2, caveats=[]).confidence == 0.0
+    assert Answer(answer="x", confidence=0.9, caveats=[], remember=[]).confidence == 0.9
+    assert Answer(answer="x", confidence=1.05, caveats=[], remember=[]).confidence == 1.0
+    assert Answer(answer="x", confidence=-0.2, caveats=[], remember=[]).confidence == 0.0
 
 
 def test_openai_strict_conversion_produces_a_clean_schema():
@@ -221,3 +221,67 @@ def test_openai_strict_conversion_produces_a_clean_schema():
     serialized = json.dumps(to_strict_json_schema(Answer))
     for keyword in ('"minimum"', '"maximum"', '"multipleOf"'):
         assert keyword not in serialized, f"{keyword} would be sent to OpenAI"
+
+
+# --------------------------------------------------------------------------
+# Gemini
+# --------------------------------------------------------------------------
+def _gemini_engine(fast_settings, *, raises=None, text=None):
+    from app.engines.gemini_engine import GeminiEngine
+
+    class _Models:
+        async def generate_content(self, **kw):
+            if raises is not None:
+                raise raises
+
+            class _Response:
+                pass
+
+            r = _Response()
+            r.text = text
+            return r
+
+    class _Client:
+        class aio:  # noqa: N801 - mirrors the SDK's attribute name
+            models = _Models()
+
+    engine = GeminiEngine(fast_settings.model_copy(update={"google_api_key": "test-google-key"}))
+    engine._client = _Client()
+    return engine
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable"), [(429, True), (503, True), (400, False), (403, False)]
+)
+async def test_gemini_errors_are_classified(fast_settings, code, retryable):
+    from google.genai import errors
+
+    from app.engines.base import EngineError
+
+    exc = errors.APIError(code, {"error": {"code": code, "message": "x", "status": "X"}})
+    engine = _gemini_engine(fast_settings, raises=exc)
+    with pytest.raises(EngineError) as info:
+        await engine.answer("q")
+    assert info.value.retryable is retryable
+    assert info.value.status_code == code
+
+
+async def test_gemini_parses_the_shared_schema(fast_settings):
+    body = '{"answer": "Puccini", "confidence": 1.0, "caveats": [], "remember": []}'
+    answer = await _gemini_engine(fast_settings, text=body).answer("q")
+    assert answer.answer == "Puccini"
+
+
+@pytest.mark.parametrize("text", [None, "", '{"answer": "missing fields"}'])
+async def test_gemini_unusable_output_is_permanent(fast_settings, text):
+    from app.engines.base import EngineError
+
+    with pytest.raises(EngineError) as info:
+        await _gemini_engine(fast_settings, text=text).answer("q")
+    assert info.value.retryable is False
+
+
+def test_gemini_is_unavailable_without_a_key(fast_settings):
+    from app.engines.gemini_engine import GeminiEngine
+
+    assert "GOOGLE_API_KEY" in GeminiEngine(fast_settings).is_available()

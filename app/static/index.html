@@ -92,23 +92,39 @@
   td.permanent_error, td.skipped { color: var(--err); }
   code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .banner { border-left: 3px solid var(--err); padding-left: 12px; color: var(--err); }
+  .memhead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .memhead h2 { margin: 0; }
+  ul.mem { list-style: none; margin: 12px 0 0; padding: 0; }
+  ul.mem li { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+              padding: 7px 0; border-bottom: 1px solid var(--edge); }
+  ul.mem li:last-child { border-bottom: 0; }
+  ul.mem li.new span { color: var(--ok); }
+  ul.mem button, button.quiet { font-size: 12px; padding: 4px 10px; cursor: pointer;
+                                color: var(--muted); }
+  ul.mem button:hover, button.quiet:hover { color: var(--ink); border-color: var(--err); }
+  .empty, .who { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .who code { user-select: all; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted);
+           text-transform: none; letter-spacing: 0; margin: 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>Jeopardy<span>2</span> Agent</h1>
-  <p class="sub">OpenAI primary &middot; Claude fallback &middot; retries and backoff in the harness</p>
+  <p class="sub" id="sub">Retries, backoff and fallback in the harness &middot; remembers you across sessions</p>
 
   <div class="card">
     <label for="q">Question</label>
     <textarea id="q" placeholder="Explain AI in one or two sentences that my grandfather could understand."></textarea>
     <div class="examples">
+      <button data-ex="I'm cramming opera for a pub quiz, and I like short answers.">tell it about you</button>
+      <button data-ex="Quiz me with one question.">quiz me</button>
       <button data-ex="Explain AI in one or two sentences that my grandfather could understand.">grandfather / AI</button>
       <button data-ex="What is the capital of Australia, and why do people get it wrong?">capital of Australia</button>
       <button data-ex="In two sentences, what makes a good Jeopardy! clue?">good clue</button>
     </div>
     <div class="row">
-      <div class="grow">
+      <div class="grow hidden" id="ffWrap">
         <label for="ff">Force failure (demo the fallback)</label>
         <select id="ff">
           <option value="">None &mdash; normal run</option>
@@ -118,8 +134,21 @@
           <option value="both">Both &mdash; ends degraded</option>
         </select>
       </div>
+      <label class="check"><input type="checkbox" id="useMem" checked /> Remember me</label>
       <button id="go" class="primary">Ask</button>
     </div>
+  </div>
+
+  <div id="memCard" class="card">
+    <div class="memhead">
+      <h2>What I remember about you</h2>
+      <button id="forgetAll" class="quiet hidden">Forget everything</button>
+    </div>
+    <ul id="memList" class="mem"></ul>
+    <p id="memEmpty" class="empty">Nothing yet. Tell me something about yourself, then come back
+      later, in a new tab or after a restart, and I will still know it.</p>
+    <p class="who">You are <code id="who"></code>, an ID this browser made up and keeps. No account,
+      so anyone with this ID sees these facts.</p>
   </div>
 
   <div id="progress" class="card hidden">
@@ -137,6 +166,7 @@
       <div>Attempts <b id="attempts">&mdash;</b></div>
       <div>Elapsed <b id="elapsed">&mdash;</b></div>
       <div>Fallback <b id="fellBack">&mdash;</b></div>
+      <div>Memory <b id="memUse">&mdash;</b></div>
     </div>
   </div>
 
@@ -152,8 +182,70 @@
 
 <script>
 const el = (id) => document.getElementById(id);
-const qBox = el("q"), ffBox = el("ff"), goBtn = el("go");
+const qBox = el("q"), ffBox = el("ff"), goBtn = el("go"), useMem = el("useMem");
 let stream = null;
+
+// --- Who is asking -------------------------------------------------------
+// No accounts: the browser invents an ID once and keeps it. It is the key to
+// this person's memories, so it lives only here and in the requests they send.
+const USER_KEY = "jeopardy2.user_id";
+function makeId() {
+  return "u-" + (crypto.randomUUID ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2) + Date.now().toString(36));
+}
+let userId = null;
+try { userId = localStorage.getItem(USER_KEY); } catch (e) { /* storage blocked */ }
+if (!userId) {
+  userId = makeId();
+  try { localStorage.setItem(USER_KEY, userId); } catch (e) { /* per-tab only */ }
+}
+el("who").textContent = userId;
+
+// --- Memory panel --------------------------------------------------------
+async function loadMemory(fresh = []) {
+  let items = [];
+  try {
+    const r = await fetch(`/jeopardy2/memory?user_id=${encodeURIComponent(userId)}`);
+    if (r.ok) items = await r.json();
+  } catch (e) { return; }
+  const list = el("memList");
+  list.innerHTML = "";
+  items.forEach((m) => {
+    const li = document.createElement("li");
+    if (fresh.includes(m.text)) li.className = "new";
+    const span = document.createElement("span");
+    span.textContent = m.text;
+    const btn = document.createElement("button");
+    btn.textContent = "Forget";
+    btn.addEventListener("click", () => forget(m.id));
+    li.append(span, btn);
+    list.appendChild(li);
+  });
+  el("memEmpty").classList.toggle("hidden", items.length > 0);
+  el("forgetAll").classList.toggle("hidden", items.length === 0);
+}
+
+async function forget(id) {
+  const params = new URLSearchParams({ user_id: userId });
+  if (id !== undefined) params.set("memory_id", id);
+  try { await fetch(`/jeopardy2/memory?${params}`, { method: "DELETE" }); } catch (e) {}
+  loadMemory();
+}
+el("forgetAll").addEventListener("click", () => forget());
+
+// --- What this deployment is ---------------------------------------------
+fetch("/jeopardy2/config").then((r) => r.json()).then((cfg) => {
+  const names = { openai: "OpenAI", anthropic: "Claude", gemini: "Gemini" };
+  const chain = cfg.provider_order.map((p) => names[p] || p);
+  el("sub").textContent = (chain.length > 1
+    ? `${chain[0]} primary, ${chain.slice(1).join(", ")} fallback`
+    : `${chain[0]}`) + " \u00b7 retries and backoff in the harness \u00b7 remembers you across sessions";
+  // The fallback demo only does anything where fault injection is enabled,
+  // which a public deployment turns off.
+  el("ffWrap").classList.toggle("hidden", !cfg.fault_injection_enabled);
+}).catch(() => {});
+
+loadMemory();
 
 document.querySelectorAll(".examples button").forEach((b) => {
   b.addEventListener("click", () => { qBox.value = b.dataset.ex; qBox.focus(); });
@@ -190,6 +282,7 @@ function ask() {
 
   const params = new URLSearchParams({ question });
   if (ffBox.value) params.set("force_fail", ffBox.value);
+  if (useMem.checked) params.set("user_id", userId);
 
   stream = new EventSource(`/jeopardy2/stream?${params}`);
 
@@ -245,6 +338,10 @@ function render(res) {
   el("attempts").textContent = t.attempts.length;
   el("elapsed").textContent = `${(t.total_ms / 1000).toFixed(1)}s`;
   el("fellBack").textContent = t.used_fallback ? "yes" : "no";
+  const mem = res.memory;
+  el("memUse").textContent = mem
+    ? `recalled ${mem.recalled.length}, saved ${mem.saved.length}` : "off";
+  if (mem) loadMemory(mem.saved);
 
   const body = el("traceBody");
   body.innerHTML = "";

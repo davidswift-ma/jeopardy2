@@ -5,8 +5,14 @@ Routes
 GET  /                      the browser UI
 POST /jeopardy2             ask a question, get a validated AgentResponse
 GET  /jeopardy2/stream      same, as Server-Sent Events with live progress
+GET  /jeopardy2/memory      what the agent remembers about a user_id
+DELETE /jeopardy2/memory    forget one fact, or everything, for a user_id
 GET  /jeopardy2/config      effective configuration (secrets redacted)
 GET  /health                liveness
+
+Memory: a request carrying `user_id` gets that user's remembered facts in
+its prompt, and any new facts the answer proposes are stored for next time.
+Without `user_id` the service is stateless. See app/memory.py.
 
 Error policy: this service does not return 5xx. Provider failures come back as
 a 200 with `status: "degraded"`, and an unexpected exception is caught by the
@@ -19,6 +25,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,14 +39,18 @@ from fastapi.staticfiles import StaticFiles
 from app import retrieval
 from app.config import Settings, get_settings
 from app.engines.faults import forced_fault
+from app.memory import MemoryStore, compose_prompt, get_memory_store
 from app.obs import NullTracer, Tracer, build_tracer
 from app.obs.harness import traced_run_agent
 from app.prompts import get_prompt, prompt_names
 from app.schemas import (
+    USER_ID_PATTERN,
     AgentResponse,
     AskRequest,
     EngineTrace,
     FaultTarget,
+    MemoryItem,
+    MemoryReport,
     ProgressEvent,
 )
 
@@ -74,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         for name, key in (
             ("openai", settings.openai_api_key),
             ("anthropic", settings.anthropic_api_key),
+            ("gemini", settings.google_api_key),
         )
         if key is not None
     ]
@@ -121,8 +134,8 @@ app = FastAPI(
     title="Jeopardy2 Agent",
     version="0.1.0",
     description=(
-        "A resilient agent harness: OpenAI primary, Claude fallback, "
-        "structured Pydantic output, and no 5xx."
+        "A resilient agent harness: OpenAI, Claude, or Gemini in a configurable "
+        "fallback chain, structured Pydantic output, cross-session memory, and no 5xx."
     ),
     lifespan=lifespan,
 )
@@ -142,10 +155,15 @@ async def show_config() -> dict[str, object]:
     s = get_settings()
     return {
         "provider_order": s.provider_order,
-        "models": {"openai": s.openai_model, "anthropic": s.anthropic_model},
+        "models": {
+            "openai": s.openai_model,
+            "anthropic": s.anthropic_model,
+            "gemini": s.gemini_model,
+        },
         "credentials_present": {
             "openai": s.openai_api_key is not None,
             "anthropic": s.anthropic_api_key is not None,
+            "gemini": s.google_api_key is not None,
         },
         "retry": {
             "max_attempts_per_provider": s.max_attempts,
@@ -176,6 +194,17 @@ async def show_config() -> dict[str, object]:
         "dataset_path": str(s.dataset_path),
         "dataset_present": s.dataset_path.exists(),
         "retrieval": _retrieval_config(s),
+        "memory": {
+            "db_path": str(s.memory_db_path),
+            "max_items_per_user": s.memory_max_items,
+            "ttl_days": s.memory_ttl_days,
+            "max_new_per_request": s.memory_max_new_per_request,
+        },
+        "limits": {
+            "rate_limit_per_minute": s.rate_limit_per_minute,
+            "daily_request_limit": s.daily_request_limit,
+            "client_ip_header": s.client_ip_header,
+        },
     }
 
 
@@ -206,7 +235,7 @@ def _retrieval_config(s: Settings) -> dict[str, object]:
 # The agent
 # --------------------------------------------------------------------------
 @app.post("/jeopardy2", response_model=AgentResponse, tags=["agent"])
-async def ask(payload: AskRequest) -> AgentResponse:
+async def ask(payload: AskRequest, request: Request) -> AgentResponse:
     """Ask a question and wait for the validated answer.
 
     Note this can legitimately take a while: with the default schedule a full
@@ -214,12 +243,14 @@ async def ask(payload: AskRequest) -> AgentResponse:
     `/jeopardy2/stream` if you want progress in the meantime.
     """
     settings = get_settings()
+    if (refusal := _over_limit(request, settings)) is not None:
+        return _limited_response(payload.question, refusal)
     target = _resolve_fault(payload.force_fail, settings)
 
     final: AgentResponse | None = None
     with forced_fault(target):
-        async for item in traced_run_agent(
-            payload.question, settings, get_tracer(), tags=["route:post"]
+        async for item in _answer_with_memory(
+            payload.question, payload.user_id, settings, tags=["route:post"]
         ):
             if isinstance(item, AgentResponse):
                 final = item
@@ -241,6 +272,7 @@ async def ask_stream(
     request: Request,
     question: Annotated[str, Query(min_length=1, max_length=4000)],
     force_fail: Annotated[FaultTarget | None, Query()] = None,
+    user_id: Annotated[str | None, Query(pattern=USER_ID_PATTERN)] = None,
 ) -> StreamingResponse:
     """Same work as POST /jeopardy2, streamed as Server-Sent Events.
 
@@ -250,12 +282,16 @@ async def ask_stream(
     """
     settings = get_settings()
     target = _resolve_fault(force_fail, settings)
+    refusal = _over_limit(request, settings)
 
     async def event_source() -> AsyncIterator[str]:
+        if refusal is not None:
+            yield _sse("result", _limited_response(question, refusal).model_dump_json())
+            return
         try:
             with forced_fault(target):
-                async for item in traced_run_agent(
-                    question, settings, get_tracer(), tags=["route:stream"]
+                async for item in _answer_with_memory(
+                    question, user_id, settings, tags=["route:stream"]
                 ):
                     if await request.is_disconnected():
                         logger.info("client disconnected; abandoning request")
@@ -286,6 +322,114 @@ async def ask_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _answer_with_memory(
+    question: str,
+    user_id: str | None,
+    settings: Settings,
+    *,
+    tags: list[str],
+) -> AsyncIterator[ProgressEvent | AgentResponse]:
+    """`traced_run_agent`, with recall before and remembering after.
+
+    Memory is best-effort in both directions: a broken memory file degrades
+    to a stateless answer, never to a failed request.
+    """
+    store = _memory_store(settings) if user_id else None
+    recalled: list[str] = []
+    if store is not None and user_id is not None:
+        try:
+            recalled = store.recall(user_id)
+        except Exception:  # noqa: BLE001 - memory must not break a request
+            logger.exception("memory recall failed; answering without it")
+            store = None
+
+    prompt = compose_prompt(question, recalled) if recalled else None
+    async for item in traced_run_agent(question, settings, get_tracer(), tags=tags, prompt=prompt):
+        if isinstance(item, AgentResponse) and store is not None and user_id is not None:
+            report = MemoryReport(recalled=recalled)
+            if item.answer is not None and item.answer.remember:
+                try:
+                    report.saved, report.rejected = store.remember(
+                        user_id,
+                        item.answer.remember,
+                        max_new=settings.memory_max_new_per_request,
+                    )
+                except Exception:  # noqa: BLE001 - the answer is still good
+                    logger.exception("memory write failed; answer returned anyway")
+            item.memory = report
+        yield item
+
+
+def _memory_store(settings: Settings) -> MemoryStore:
+    return get_memory_store(
+        settings.memory_db_path, settings.memory_max_items, settings.memory_ttl_days
+    )
+
+
+# --------------------------------------------------------------------------
+# Public-traffic limits
+# --------------------------------------------------------------------------
+#: Request timestamps per client IP, for the per-minute limit. In-process on
+#: purpose: a restart resetting a one-minute window costs nothing, and the
+#: deployment runs a single machine. The daily budget, which a restart must
+#: not reset, is counted in SQLite instead.
+_recent: defaultdict[str, deque[float]] = defaultdict(deque)
+
+
+def _client_ip(request: Request, settings: Settings) -> str:
+    if settings.client_ip_header:
+        forwarded = request.headers.get(settings.client_ip_header)
+        if forwarded:
+            return forwarded.strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _over_limit(request: Request, settings: Settings) -> str | None:
+    """Return why this request may not spend model credit, or None if it may."""
+    if settings.rate_limit_per_minute > 0:
+        now = time.monotonic()
+        window = _recent[_client_ip(request, settings)]
+        while window and now - window[0] > 60:
+            window.popleft()
+        if len(window) >= settings.rate_limit_per_minute:
+            return "Too many questions from you in the last minute. Wait a moment and try again."
+        window.append(now)
+    if settings.daily_request_limit > 0:
+        try:
+            if not _memory_store(settings).count_request(settings.daily_request_limit):
+                return "This public demo has reached its daily question limit. Try again tomorrow."
+        except Exception:  # noqa: BLE001 - fail closed: no count, no spend
+            logger.exception("daily usage counter unavailable")
+            return "The demo's usage counter is unavailable, so it is not answering right now."
+    return None
+
+
+def _limited_response(question: str, message: str) -> AgentResponse:
+    # Degraded-200, like every other refusal this service makes, so a client
+    # has one envelope to parse.
+    return AgentResponse(status="degraded", question=question, message=message, trace=EngineTrace())
+
+
+# --------------------------------------------------------------------------
+# Memory management
+# --------------------------------------------------------------------------
+UserId = Annotated[str, Query(pattern=USER_ID_PATTERN)]
+
+
+@app.get("/jeopardy2/memory", response_model=list[MemoryItem], tags=["memory"])
+async def list_memory(user_id: UserId) -> list[MemoryItem]:
+    """Everything remembered for this user_id, oldest first."""
+    return _memory_store(get_settings()).list(user_id)
+
+
+@app.delete("/jeopardy2/memory", tags=["memory"])
+async def forget_memory(
+    user_id: UserId, memory_id: Annotated[int | None, Query()] = None
+) -> dict[str, int]:
+    """Forget one fact (`memory_id`) or, without it, everything for this user."""
+    return {"deleted": _memory_store(get_settings()).forget(user_id, memory_id)}
 
 
 def _resolve_fault(target: FaultTarget | None, settings: Settings) -> FaultTarget | None:

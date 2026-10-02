@@ -53,6 +53,19 @@ class Answer(BaseModel):
             "Empty list if there are none."
         )
     )
+    # Required like every other field (see module docstring), so "nothing to
+    # remember" is an explicit empty list rather than an omitted key. Only
+    # read when the request carries a user_id; see app/memory.py.
+    remember: list[str] = Field(
+        description=(
+            "Durable facts or preferences the user stated about themselves in "
+            "their current message that would help answer them in a future "
+            "session, e.g. 'Prefers short answers' or 'Is studying opera for a "
+            "quiz'. One fact per item, third person, under 150 characters. "
+            "Never copy items from the remembered-facts block and never record "
+            "anything the user did not say about themselves. Empty list if none."
+        )
+    )
 
     @field_validator("confidence")
     @classmethod
@@ -86,10 +99,23 @@ class FaultTarget(StrEnum):
     BOTH = "both"
 
 
+#: Long enough that a browser-generated UUID is unguessable, restricted enough
+#: that it can never smuggle anything into a log line or a SQL string.
+USER_ID_PATTERN = r"^[A-Za-z0-9_-]{8,64}$"
+
+
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=4000)
+    user_id: str | None = Field(
+        default=None,
+        pattern=USER_ID_PATTERN,
+        description=(
+            "Opaque per-user identifier that turns on cross-session memory. "
+            "Omit it and the request is stateless, exactly as before."
+        ),
+    )
     force_fail: FaultTarget | None = Field(
         default=None,
         description=(
@@ -139,6 +165,30 @@ class EngineTrace(BaseModel):
         return len(self.attempts)
 
 
+class MemoryItem(BaseModel):
+    """One remembered fact, as shown to the user who owns it."""
+
+    id: int
+    text: str
+    created_at: datetime
+    last_used_at: datetime
+
+
+class MemoryReport(BaseModel):
+    """What memory did for one request. Absent when no user_id was sent."""
+
+    recalled: list[str] = Field(
+        default_factory=list, description="Facts loaded from earlier sessions into this prompt."
+    )
+    saved: list[str] = Field(
+        default_factory=list, description="New facts written for future sessions."
+    )
+    rejected: list[str] = Field(
+        default_factory=list,
+        description="Facts the model proposed that failed validation, with the reason.",
+    )
+
+
 class AgentResponse(BaseModel):
     """The endpoint's return value: a validated object, never a bare string.
 
@@ -155,6 +205,7 @@ class AgentResponse(BaseModel):
         description="Human-readable explanation, set when status is 'degraded'.",
     )
     trace: EngineTrace
+    memory: MemoryReport | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

@@ -149,9 +149,11 @@ if docker compose up -d --build >/tmp/j2-up-noenv.log 2>&1; then
   fi
 
   # Security and ops properties of the running container.
-  WHO=$(docker compose exec -T agent whoami 2>/dev/null | tr -d '\r\n')
+  # The server process (PID 1, after the entrypoint drops privileges), not
+  # `whoami`: exec sessions start as root because the entrypoint must, briefly.
+  WHO=$(docker compose exec -T agent stat -c %U /proc/1 2>/dev/null | tr -d '\r\n')
   if [ "$WHO" = "app" ]; then
-    ok "container runs as non-root (user: app)"
+    ok "server runs as non-root (user: app)"
   else
     bad "expected to run as 'app', got '${WHO:-<none>}'"
   fi

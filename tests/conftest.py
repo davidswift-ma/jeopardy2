@@ -38,6 +38,15 @@ _LEAKY_ENV = (
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONS",
+    "GOOGLE_API_KEY",
+    "GEMINI_MODEL",
+    "MEMORY_DB_PATH",
+    "MEMORY_MAX_ITEMS",
+    "MEMORY_TTL_DAYS",
+    "MEMORY_MAX_NEW_PER_REQUEST",
+    "RATE_LIMIT_PER_MINUTE",
+    "DAILY_REQUEST_LIMIT",
+    "CLIENT_IP_HEADER",
 )
 
 
@@ -168,7 +177,7 @@ class ExplodingTracer:
 
 
 def ok_answer(text: str = "42") -> Answer:
-    return Answer(answer=text, confidence=0.9, caveats=[])
+    return Answer(answer=text, confidence=0.9, caveats=[], remember=[])
 
 
 def transient(provider: str, kind: str = "RateLimitError") -> EngineError:

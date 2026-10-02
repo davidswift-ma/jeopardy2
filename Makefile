@@ -1,4 +1,4 @@
-.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal injection-probe clues-db judge agents-demo agents-routing probe probe-compare setup-eval eval-record eval eval-report eval-dashboard docker-build docker-up docker-down docker-logs verify-docker clean
+.PHONY: help setup setup-obs setup-rag setup-adk dev test lint fmt check sample index index-status agent-minimal injection-probe clues-db judge agents-demo agents-routing probe probe-compare setup-eval eval-record eval eval-report eval-dashboard docker-build docker-up docker-down docker-logs verify-docker fly-setup deploy deploy-logs clean
 
 VENV := .venv
 PY   := $(VENV)/bin/python
@@ -99,6 +99,17 @@ docker-logs:  ## Tail container logs
 
 verify-docker:  ## Full deployment check: build, both CPU archs, no-.env case, live answer
 	./scripts/verify_docker.sh
+
+fly-setup:  ## One-time Fly.io setup: create the app and its memory volume (needs `fly auth login`)
+	fly apps create $$(awk -F'"' '/^app =/{print $$2}' fly.toml)
+	fly volumes create jeopardy2_memory --size 1 --region $$(awk -F'"' '/^primary_region/{print $$2}' fly.toml) --yes
+	@echo "\n>> Now set the key in your own terminal (not in a chat):  fly secrets set GOOGLE_API_KEY=..."
+
+deploy:  ## Build on Fly's servers and release to the public URL (single machine)
+	fly deploy --ha=false
+
+deploy-logs:  ## Tail the deployed app's logs
+	fly logs
 
 clean:  ## Remove caches and the venv
 	rm -rf $(VENV) .pytest_cache .ruff_cache **/__pycache__ *.egg-info

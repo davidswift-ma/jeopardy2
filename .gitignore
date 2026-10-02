@@ -32,6 +32,7 @@ data/chroma/
 # SQLite export of the clues, queried by the MCP server. Same reasoning: it
 # is the clue data in another container.
 data/*.sqlite3
+data/*.sqlite3-*
 data/*.db
 
 # Eval traces keep tool results whole (the grounding check needs them), so
